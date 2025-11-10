@@ -28,6 +28,8 @@ func NewRouter(cfg *config.Config, authHandler *Auth) *Router {
 
 // Setup configures all application routes
 func (rt *Router) Setup(e *echo.Echo) {
+	// Health check endpoint
+	e.GET("/health", rt.healthCheck)
 
 	// API v1 group
 	v1 := e.Group("/v1")
@@ -67,6 +69,14 @@ func (rt *Router) notImplemented(c echo.Context) error {
 		"path":    c.Request().URL.Path,
 		"method":  c.Request().Method,
 		"message": "Please initialize the required handler in main.go",
+	})
+}
+
+// healthCheck returns health status
+func (rt *Router) healthCheck(c echo.Context) error {
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"status":      "ok",
+		"environment": "production",
 	})
 }
 
