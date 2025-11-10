@@ -1,8 +1,6 @@
 module github.com/johnquangdev/meeting-assistant
 
-go 1.24.4
-
-toolchain go1.24.9
+go 1.24.0
 
 require (
 	github.com/golang-jwt/jwt/v5 v5.3.0
@@ -11,6 +9,7 @@ require (
 	github.com/labstack/echo/v4 v4.13.4
 	github.com/redis/go-redis/v9 v9.16.0
 	golang.org/x/oauth2 v0.32.0
+	gorm.io/datatypes v1.2.7
 	gorm.io/driver/postgres v1.6.0
 	gorm.io/gorm v1.31.1
 )
@@ -38,6 +37,5 @@ require (
 	golang.org/x/sys v0.37.0 // indirect
 	golang.org/x/text v0.30.0 // indirect
 	golang.org/x/time v0.11.0 // indirect
-	gorm.io/datatypes v1.2.7 // indirect
 	gorm.io/driver/mysql v1.5.6 // indirect
 )
