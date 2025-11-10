@@ -134,8 +134,13 @@ celerybeat.pid
 # SageMath parsed files
 *.sage.py
 
-# Environments
+# Environments & Secrets
 .env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.production
 .envrc
 .venv
 env/
@@ -143,6 +148,15 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+
+# Secrets & Credentials
+*.key
+*.pem
+*.crt
+*.p12
+secrets/
+credentials/
+livekit-server-config.yaml
 
 # Spyder project settings
 .spyderproject
@@ -205,3 +219,58 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# ======================================
+# Golang Backend
+# ======================================
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Go workspace file
+go.work
+go.work.sum
+
+# Vendor
+vendor/
+
+# Air (live reload)
+tmp/
+.air.toml
+
+# ======================================
+# Database & Storage
+# ======================================
+*.db
+*.sqlite
+*.sqlite3
+data/
+postgres_data/
+redis_data/
+minio_data/
+docker-volumes/
+
+# ======================================
+# Logs
+# ======================================
+logs/
+*.log
+
+# ======================================
+# OS Files
+# ======================================
+.DS_Store
+Thumbs.db
+*~
+
+# ======================================
+# IDE
+# ======================================
+.idea/
+*.swp
+*.swo
