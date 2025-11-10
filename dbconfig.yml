@@ -1,0 +1,11 @@
+development:
+  dialect: postgres
+  datasource: user=postgres password=postgres host=localhost port=5432 dbname=meeting_assistant sslmode=disable
+  dir: migrations
+  table: gorp_migrations
+
+production:
+  dialect: postgres
+  datasource: ${DATABASE_URL}
+  dir: migrations
+  table: gorp_migrations
