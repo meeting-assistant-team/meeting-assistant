@@ -1,0 +1,112 @@
+name: Deploy to Production Server
+
+on:
+  push:
+    branches:
+      - main  # Trigger khi push vào branch main
+  workflow_dispatch:  # Cho phép manual trigger từ GitHub UI
+
+jobs:
+  deploy:
+    name: Deploy to Server via SSH
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        
+      - name: Create .env file on server
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            # Tạo thư mục project nếu chưa có
+            mkdir -p ~/meeting-assistant
+            
+            # Tạo file .env với secrets từ GitHub
+            cat > ~/meeting-assistant/.env << EOF
+            # Server Configuration
+            APP_ENV=production
+            APP_PORT=8080
+            APP_HOST=0.0.0.0
+            
+            # Database Configuration
+            DB_HOST=postgres
+            DB_PORT=5432
+            DB_USER=postgres
+            DB_PASSWORD=${{ secrets.DB_PASSWORD }}
+            DB_NAME=meeting_assistant
+            DB_SSLMODE=disable
+            
+            # Redis Configuration
+            REDIS_HOST=redis
+            REDIS_PORT=6379
+            REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
+            REDIS_DB=0
+            
+            # JWT Configuration
+            JWT_SECRET=${{ secrets.JWT_SECRET }}
+            JWT_ACCESS_TOKEN_EXPIRE=15m
+            JWT_REFRESH_TOKEN_EXPIRE=7d
+            
+            # Google OAuth Configuration
+            GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}
+            GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}
+            GOOGLE_REDIRECT_URL=${{ secrets.GOOGLE_REDIRECT_URL }}
+            
+            # CORS Configuration
+            CORS_ALLOWED_ORIGINS=${{ secrets.CORS_ALLOWED_ORIGINS }}
+            EOF
+            
+      - name: Deploy with Docker Compose via SSH
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            # Di chuyển vào thư mục project
+            cd ~/meeting-assistant
+            
+            # Pull code mới nhất từ GitHub
+            if [ -d ".git" ]; then
+              git pull origin main
+            else
+              git clone https://github.com/${{ github.repository }} .
+            fi
+            
+            # Stop và remove containers cũ
+            docker-compose -f docker-compose.prod.yml down
+            
+            # Build và start containers mới
+            docker-compose -f docker-compose.prod.yml up -d --build
+            
+            # Cleanup unused images
+            docker image prune -af
+            
+      - name: Health Check
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            # Đợi server khởi động
+            sleep 10
+            
+            # Check health endpoint
+            curl -f http://localhost:8080/health || exit 1
+            
+      - name: Notify Deployment Status
+        if: always()
+        run: |
+          if [ ${{ job.status }} == 'success' ]; then
+            echo "✅ Deployment successful!"
+          else
+            echo "❌ Deployment failed!"
+          fi
