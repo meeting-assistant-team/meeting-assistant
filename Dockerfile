@@ -1,8 +1,8 @@
 # Build stage
-FROM golang:1.23-alpine AS builder
+FROM golang:1.24 AS builder
 
 # Install build dependencies
-RUN apk add --no-cache git make gcc musl-dev
+RUN apt-get update && apt-get install -y git make gcc
 
 # Set working directory
 WORKDIR /app
