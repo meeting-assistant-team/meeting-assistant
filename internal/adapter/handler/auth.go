@@ -5,23 +5,31 @@ import (
 
 	"github.com/labstack/echo/v4"
 
-	"github.com/johnquangdev/meeting-assistant/internal/usecase/auth"
+	_ "github.com/johnquangdev/meeting-assistant/internal/adapter/dto/auth" // for swagger
+	"github.com/johnquangdev/meeting-assistant/internal/adapter/presenter"
+	authUsecase "github.com/johnquangdev/meeting-assistant/internal/usecase/auth"
 )
 
 // Auth handles authentication HTTP requests
 type Auth struct {
-	oauthService *auth.OAuthService
+	oauthService *authUsecase.OAuthService
 }
 
 // NewAuth creates a new auth handler
-func NewAuth(oauthService *auth.OAuthService) *Auth {
+func NewAuth(oauthService *authUsecase.OAuthService) *Auth {
 	return &Auth{
 		oauthService: oauthService,
 	}
 }
 
 // GoogleLogin handles the initial Google OAuth login request
-// GET /api/v1/auth/google/login
+// @Summary      Initiate Google OAuth login
+// @Description  Redirects user to Google OAuth consent screen
+// @Tags         Authentication
+// @Produce      json
+// @Success      307  {string}  string  "Redirect to Google OAuth"
+// @Failure      500  {object}  map[string]interface{}  "Internal server error"
+// @Router       /auth/google/login [get]
 func (h *Auth) GoogleLogin(c echo.Context) error {
 	ctx := c.Request().Context()
 
@@ -38,7 +46,17 @@ func (h *Auth) GoogleLogin(c echo.Context) error {
 }
 
 // GoogleCallback handles the OAuth callback from Google
-// GET /api/v1/auth/google/callback
+// @Summary      Handle Google OAuth callback
+// @Description  Processes the OAuth callback from Google and returns JWT tokens
+// @Tags         Authentication
+// @Accept       json
+// @Produce      json
+// @Param        code   query     string  true  "Authorization code from Google"
+// @Param        state  query     string  true  "State parameter for CSRF protection"
+// @Success      200    {object}  github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.AuthResponse  "Authentication successful"
+// @Failure      400    {object}  map[string]interface{}  "Missing code or state"
+// @Failure      401    {object}  map[string]interface{}  "Authentication failed"
+// @Router       /auth/google/callback [get]
 func (h *Auth) GoogleCallback(c echo.Context) error {
 	ctx := c.Request().Context()
 
@@ -51,12 +69,12 @@ func (h *Auth) GoogleCallback(c echo.Context) error {
 		})
 	}
 
-	req := &auth.GoogleCallbackRequest{
+	req := &authUsecase.GoogleCallbackRequest{
 		Code:  code,
 		State: state,
 	}
 
-	response, err := h.oauthService.HandleGoogleCallback(ctx, req)
+	usecaseResp, err := h.oauthService.HandleGoogleCallback(ctx, req)
 	if err != nil {
 		return c.JSON(http.StatusUnauthorized, map[string]interface{}{
 			"error":   "Authentication failed",
@@ -64,11 +82,22 @@ func (h *Auth) GoogleCallback(c echo.Context) error {
 		})
 	}
 
+	// Convert usecase response to DTO
+	response := presenter.ToAuthResponse(usecaseResp)
 	return c.JSON(http.StatusOK, response)
 }
 
 // RefreshToken refreshes the access token
-// POST /api/v1/auth/refresh
+// @Summary      Refresh access token
+// @Description  Gets a new access token using a refresh token
+// @Tags         Authentication
+// @Accept       json
+// @Produce      json
+// @Param        request  body      object{refresh_token=string}  true  "Refresh token"
+// @Success      200      {object}  github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.AuthResponse  "Token refreshed successfully"
+// @Failure      400      {object}  map[string]interface{}  "Invalid request or missing token"
+// @Failure      401      {object}  map[string]interface{}  "Failed to refresh token"
+// @Router       /auth/refresh [post]
 func (h *Auth) RefreshToken(c echo.Context) error {
 	ctx := c.Request().Context()
 
@@ -89,7 +118,7 @@ func (h *Auth) RefreshToken(c echo.Context) error {
 		})
 	}
 
-	response, err := h.oauthService.RefreshAccessToken(ctx, req.RefreshToken)
+	usecaseResp, err := h.oauthService.RefreshAccessToken(ctx, req.RefreshToken)
 	if err != nil {
 		return c.JSON(http.StatusUnauthorized, map[string]interface{}{
 			"error":   "Failed to refresh token",
@@ -97,11 +126,22 @@ func (h *Auth) RefreshToken(c echo.Context) error {
 		})
 	}
 
+	// Convert usecase response to DTO
+	response := presenter.ToAuthResponse(usecaseResp)
 	return c.JSON(http.StatusOK, response)
 }
 
 // Logout logs out the current user
-// POST /api/v1/auth/logout
+// @Summary      Logout user
+// @Description  Invalidates the refresh token and logs out the user
+// @Tags         Authentication
+// @Accept       json
+// @Produce      json
+// @Param        request  body      object{refresh_token=string}  true  "Refresh token to invalidate"
+// @Success      200      {object}  map[string]string  "Logged out successfully"
+// @Failure      400      {object}  map[string]interface{}  "Missing refresh token"
+// @Failure      500      {object}  map[string]interface{}  "Failed to logout"
+// @Router       /auth/logout [post]
 func (h *Auth) Logout(c echo.Context) error {
 	ctx := c.Request().Context()
 
@@ -128,7 +168,14 @@ func (h *Auth) Logout(c echo.Context) error {
 }
 
 // Me returns the current user information
-// GET /api/v1/auth/me
+// @Summary      Get current user
+// @Description  Returns the authenticated user's information
+// @Tags         Authentication
+// @Produce      json
+// @Security     BearerAuth
+// @Success      200  {object}  github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.UserResponse  "User information"
+// @Failure      401  {object}  map[string]interface{}  "Missing or invalid token"
+// @Router       /auth/me [get]
 func (h *Auth) Me(c echo.Context) error {
 	ctx := c.Request().Context()
 
@@ -161,7 +208,7 @@ func (h *Auth) Me(c echo.Context) error {
 		})
 	}
 
-	return c.JSON(http.StatusOK, map[string]interface{}{
-		"user": user.ToPublic(),
-	})
+	// Convert entity to DTO
+	response := presenter.ToUserResponse(user)
+	return c.JSON(http.StatusOK, response)
 }

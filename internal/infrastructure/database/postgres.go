@@ -62,10 +62,8 @@ func AutoMigrate(db *gorm.DB) error {
 	err := db.AutoMigrate(
 		&entities.User{},
 		&entities.Session{},
-		// Add other entities here as you create them
-		// &entities.Room{},
-		// &entities.Recording{},
-		// &entities.Report{},
+		&entities.Room{},
+		&entities.Participant{},
 	)
 
 	if err != nil {

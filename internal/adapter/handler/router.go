@@ -4,7 +4,9 @@ import (
 	"net/http"
 
 	"github.com/labstack/echo/v4"
+	echoSwagger "github.com/swaggo/echo-swagger"
 
+	_ "github.com/johnquangdev/meeting-assistant/docs/swagger" // Swagger docs
 	"github.com/johnquangdev/meeting-assistant/pkg/config"
 )
 
@@ -12,17 +14,20 @@ import (
 type Router struct {
 	cfg         *config.Config
 	authHandler *Auth
+	roomHandler *Room
+	authMW      echo.MiddlewareFunc
 	// Add more handlers here as needed
-	// roomHandler *Room
 	// recordingHandler *Recording
 	// reportHandler *Report
 }
 
 // NewRouter creates a new router with all handlers
-func NewRouter(cfg *config.Config, authHandler *Auth) *Router {
+func NewRouter(cfg *config.Config, authHandler *Auth, roomHandler *Room, authMW echo.MiddlewareFunc) *Router {
 	return &Router{
 		cfg:         cfg,
 		authHandler: authHandler,
+		roomHandler: roomHandler,
+		authMW:      authMW,
 	}
 }
 
@@ -31,12 +36,15 @@ func (rt *Router) Setup(e *echo.Echo) {
 	// Health check endpoint
 	e.GET("/health", rt.healthCheck)
 
+	// Swagger documentation
+	e.GET("/swagger/*", echoSwagger.WrapHandler)
+
 	// API v1 group
 	v1 := e.Group("/v1")
 
 	// Setup route groups
 	rt.setupAuthRoutes(v1)
-	// rt.setupRoomRoutes(v1)
+	rt.setupRoomRoutes(v1)
 	// rt.setupRecordingRoutes(v1)
 	// rt.setupReportRoutes(v1)
 }
@@ -80,17 +88,43 @@ func (rt *Router) healthCheck(c echo.Context) error {
 	})
 }
 
-// // setupRoomRoutes configures room management routes
-// func (rt *Router) setupRoomRoutes(g *echo.Group) {
-// 	roomGroup := g.Group("/rooms")
+// setupRoomRoutes configures room management routes
+func (rt *Router) setupRoomRoutes(g *echo.Group) {
+	roomGroup := g.Group("/rooms")
 
-// 	// TODO: Add room routes
-// 	roomGroup.GET("", rt.notImplemented)
-// 	roomGroup.POST("", rt.notImplemented)
-// 	roomGroup.GET("/:id", rt.notImplemented)
-// 	roomGroup.PUT("/:id", rt.notImplemented)
-// 	roomGroup.DELETE("/:id", rt.notImplemented)
-// }
+	// protect room routes with auth middleware if provided
+	if rt.authMW != nil {
+		roomGroup.Use(rt.authMW)
+	}
+
+	if rt.roomHandler != nil {
+		// Room CRUD
+		roomGroup.POST("", rt.roomHandler.CreateRoom) // Create room
+		roomGroup.GET("", rt.roomHandler.ListRooms)   // List rooms
+		roomGroup.GET("/:id", rt.roomHandler.GetRoom) // Get room details
+
+		// Room actions
+		roomGroup.POST("/:id/join", rt.roomHandler.JoinRoom)   // Join room
+		roomGroup.POST("/:id/leave", rt.roomHandler.LeaveRoom) // Leave room
+		roomGroup.POST("/:id/end", rt.roomHandler.EndRoom)     // End room
+
+		// Participant management
+		roomGroup.GET("/:id/participants", rt.roomHandler.GetParticipants)           // List participants
+		roomGroup.DELETE("/:id/participants/:pid", rt.roomHandler.RemoveParticipant) // Remove participant
+		roomGroup.POST("/:id/transfer-host", rt.roomHandler.TransferHost)            // Transfer host
+	} else {
+		// Placeholder routes when handler is not initialized
+		roomGroup.POST("", rt.notImplemented)
+		roomGroup.GET("", rt.notImplemented)
+		roomGroup.GET("/:id", rt.notImplemented)
+		roomGroup.POST("/:id/join", rt.notImplemented)
+		roomGroup.POST("/:id/leave", rt.notImplemented)
+		roomGroup.POST("/:id/end", rt.notImplemented)
+		roomGroup.GET("/:id/participants", rt.notImplemented)
+		roomGroup.DELETE("/:id/participants/:pid", rt.notImplemented)
+		roomGroup.POST("/:id/transfer-host", rt.notImplemented)
+	}
+}
 
 // // setupRecordingRoutes configures recording routes
 // func (rt *Router) setupRecordingRoutes(g *echo.Group) {

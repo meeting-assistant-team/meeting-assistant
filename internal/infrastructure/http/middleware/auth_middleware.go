@@ -7,6 +7,7 @@ import (
 
 	"github.com/johnquangdev/meeting-assistant/internal/domain/entities"
 	"github.com/johnquangdev/meeting-assistant/internal/usecase/auth"
+	"github.com/labstack/echo/v4"
 )
 
 // ContextKey is the type for context keys
@@ -98,6 +99,45 @@ func (m *AuthMiddleware) OptionalAuth(next http.Handler) http.Handler {
 func GetUserFromContext(ctx context.Context) (*entities.User, bool) {
 	user, ok := ctx.Value(UserContextKey).(*entities.User)
 	return user, ok
+}
+
+// EchoAuth returns an Echo middleware that validates JWT and sets
+// "user_id" (uuid.UUID) and "user" (*entities.User) into Echo context
+func EchoAuth(oauthService *auth.OAuthService) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			// Extract token from Authorization header or cookie
+			authHeader := c.Request().Header.Get("Authorization")
+			token := ""
+			if authHeader != "" {
+				parts := strings.Split(authHeader, " ")
+				if len(parts) == 2 && strings.ToLower(parts[0]) == "bearer" {
+					token = parts[1]
+				}
+			}
+			if token == "" {
+				// try cookie
+				if cookie, err := c.Cookie("access_token"); err == nil {
+					token = cookie.Value
+				}
+			}
+
+			if token == "" {
+				return echo.NewHTTPError(http.StatusUnauthorized, "Missing authorization token")
+			}
+
+			user, err := oauthService.ValidateSession(c.Request().Context(), token)
+			if err != nil {
+				return echo.NewHTTPError(http.StatusUnauthorized, "Invalid or expired token")
+			}
+
+			// set into echo context: user and user_id
+			c.Set("user", user)
+			c.Set("user_id", user.ID)
+
+			return next(c)
+		}
+	}
 }
 
 // Helper functions

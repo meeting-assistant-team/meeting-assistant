@@ -13,15 +13,39 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 
+	pkgvalidator "github.com/johnquangdev/meeting-assistant/pkg/validator"
+
 	"github.com/johnquangdev/meeting-assistant/internal/adapter/handler"
 	"github.com/johnquangdev/meeting-assistant/internal/adapter/repository"
 	"github.com/johnquangdev/meeting-assistant/internal/infrastructure/cache"
 	"github.com/johnquangdev/meeting-assistant/internal/infrastructure/database"
 	"github.com/johnquangdev/meeting-assistant/internal/infrastructure/external/oauth"
+	httpmw "github.com/johnquangdev/meeting-assistant/internal/infrastructure/http/middleware"
 	"github.com/johnquangdev/meeting-assistant/internal/usecase/auth"
+	"github.com/johnquangdev/meeting-assistant/internal/usecase/room"
 	"github.com/johnquangdev/meeting-assistant/pkg/config"
 	"github.com/johnquangdev/meeting-assistant/pkg/jwt"
 )
+
+// @title           Meeting Assistant API
+// @version         1.0
+// @description     API for Meeting Assistant application with OAuth, room management, and LiveKit integration
+// @termsOfService  https://api-meeting.infoquang.id.vn/terms
+
+// @contact.name   API Support
+// @contact.url    https://api-meeting.infoquang.id.vn/support
+// @contact.email  support@infoquang.id.vn
+
+// @license.name  Apache 2.0
+// @license.url   http://www.apache.org/licenses/LICENSE-2.0.html
+
+// @host      api-meeting.infoquang.id.vn
+// @BasePath  /v1
+
+// @securityDefinitions.apikey BearerAuth
+// @in header
+// @name Authorization
+// @description Type "Bearer" followed by a space and JWT token.
 
 func main() {
 	// Load configuration
@@ -32,6 +56,9 @@ func main() {
 
 	// Initialize Echo instance
 	e := echo.New()
+
+	// Register validator for request validation
+	e.Validator = pkgvalidator.New()
 
 	// Configure Echo
 	e.HideBanner = true
@@ -53,9 +80,10 @@ func main() {
 	}))
 
 	// Initialize dependencies
-	log.Println("⚙️  Initializing OAuth components...")
+	log.Println("🔧 Initializing dependencies...")
 
 	// Initialize Database
+	log.Println("📦 Connecting to database...")
 	db, err := database.NewPostgresDB(cfg)
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
@@ -63,11 +91,13 @@ func main() {
 	defer database.CloseDB(db)
 
 	// Run migrations
+	log.Println("🔄 Running database migrations...")
 	if err := database.AutoMigrate(db); err != nil {
 		log.Fatalf("Failed to run migrations: %v", err)
 	}
 
 	// Initialize Redis
+	log.Println("📦 Connecting to Redis...")
 	redisClient, err := cache.NewRedisClient(cfg)
 	if err != nil {
 		log.Fatalf("Failed to connect to Redis: %v", err)
@@ -75,10 +105,14 @@ func main() {
 	defer redisClient.Close()
 
 	// Initialize repositories
+	log.Println("⚙️  Initializing repositories...")
 	userRepo := repository.NewUserRepository(db)
 	sessionRepo := repository.NewSessionRepository(db)
+	roomRepo := repository.NewRoomRepository(db)
+	participantRepo := repository.NewParticipantRepository(db)
 
 	// Initialize OAuth provider
+	log.Println("🔐 Initializing OAuth provider...")
 	googleProvider := oauth.NewGoogleProvider(
 		cfg.OAuth.Google.ClientID,
 		cfg.OAuth.Google.ClientSecret,
@@ -86,9 +120,11 @@ func main() {
 	)
 
 	// Initialize state manager with Redis for CSRF protection
+	log.Println("🔒 Initializing state manager...")
 	stateManager := oauth.NewStateManager(redisClient)
 
 	// Initialize JWT manager
+	log.Println("🔑 Initializing JWT manager...")
 	jwtManager := jwt.NewManager(
 		cfg.JWT.AccessSecret,
 		cfg.JWT.RefreshSecret,
@@ -97,6 +133,7 @@ func main() {
 	)
 
 	// Initialize OAuth service with real repositories
+	log.Println("✨ Initializing OAuth service...")
 	oauthService := auth.NewOAuthService(
 		userRepo,
 		sessionRepo,
@@ -106,11 +143,26 @@ func main() {
 	)
 
 	// Initialize auth handler
+	log.Println("🚀 Initializing auth handler...")
 	authHandler := handler.NewAuth(oauthService)
 	log.Println("✅ Auth handler initialized successfully")
 
+	// Initialize room service
+	log.Println("🏠 Initializing room service...")
+	roomService := room.NewRoomService(roomRepo, participantRepo)
+
+	// Initialize room handler
+	log.Println("🚪 Initializing room handler...")
+	roomHandler := handler.NewRoomHandler(roomService)
+	log.Println("✅ Room handler initialized successfully")
+
 	// Setup router with handlers
-	router := handler.NewRouter(cfg, authHandler)
+	log.Println("🛣️  Setting up routes...")
+
+	// Create Echo auth middleware from existing OAuth service
+	authEchoMW := httpmw.EchoAuth(oauthService)
+
+	router := handler.NewRouter(cfg, authHandler, roomHandler, authEchoMW)
 	router.Setup(e)
 
 	// Start server
