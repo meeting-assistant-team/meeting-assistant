@@ -1,0 +1,758 @@
+basePath: /v1
+definitions:
+  github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.AuthResponse:
+    properties:
+      access_token:
+        type: string
+      expires_in:
+        description: seconds
+        type: integer
+      refresh_token:
+        type: string
+      token_type:
+        description: '"Bearer"'
+        type: string
+      user:
+        $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.UserResponse'
+    type: object
+  github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.UserResponse:
+    properties:
+      avatar_url:
+        type: string
+      created_at:
+        type: string
+      email:
+        type: string
+      email_verified:
+        type: boolean
+      id:
+        type: string
+      last_login_at:
+        type: string
+      meeting_preferences:
+        additionalProperties: true
+        type: object
+      name:
+        type: string
+      notification_preferences:
+        additionalProperties: true
+        type: object
+      oauth_provider:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.CreateRoomRequest:
+    properties:
+      description:
+        type: string
+      max_participants:
+        maximum: 100
+        minimum: 2
+        type: integer
+      name:
+        maxLength: 255
+        minLength: 1
+        type: string
+      scheduled_end_time:
+        type: string
+      scheduled_start_time:
+        type: string
+      settings:
+        additionalProperties: true
+        type: object
+      type:
+        enum:
+        - public
+        - private
+        - scheduled
+        type: string
+    required:
+    - max_participants
+    - name
+    - type
+    type: object
+  github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.JoinRoomResponse:
+    properties:
+      livekit_token:
+        type: string
+      livekit_url:
+        type: string
+      participant:
+        $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.ParticipantResponse'
+      participants:
+        items:
+          $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.ParticipantResponse'
+        type: array
+      room:
+        $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.RoomResponse'
+    type: object
+  github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.ParticipantListResponse:
+    properties:
+      participants:
+        items:
+          $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.ParticipantResponse'
+        type: array
+      total:
+        type: integer
+    type: object
+  github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.ParticipantResponse:
+    properties:
+      can_mute_others:
+        type: boolean
+      can_record:
+        type: boolean
+      can_share_screen:
+        type: boolean
+      connection_quality:
+        type: string
+      created_at:
+        type: string
+      duration:
+        type: integer
+      id:
+        type: string
+      is_hand_raised:
+        type: boolean
+      is_muted:
+        type: boolean
+      joined_at:
+        type: string
+      left_at:
+        type: string
+      role:
+        type: string
+      room_id:
+        type: string
+      status:
+        type: string
+      user:
+        $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.UserResponse'
+      user_id:
+        type: string
+    type: object
+  github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.RemoveParticipantRequest:
+    properties:
+      reason:
+        maxLength: 500
+        minLength: 1
+        type: string
+    required:
+    - reason
+    type: object
+  github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.RoomListResponse:
+    properties:
+      page:
+        type: integer
+      page_size:
+        type: integer
+      rooms:
+        items:
+          $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.RoomResponse'
+        type: array
+      total:
+        type: integer
+      total_pages:
+        type: integer
+    type: object
+  github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.RoomResponse:
+    properties:
+      created_at:
+        type: string
+      current_participants:
+        type: integer
+      description:
+        type: string
+      duration:
+        type: integer
+      ended_at:
+        type: string
+      host:
+        $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.UserResponse'
+      host_id:
+        type: string
+      id:
+        type: string
+      livekit_room_name:
+        type: string
+      max_participants:
+        type: integer
+      name:
+        type: string
+      scheduled_end_time:
+        type: string
+      scheduled_start_time:
+        type: string
+      settings:
+        additionalProperties: true
+        type: object
+      slug:
+        type: string
+      started_at:
+        type: string
+      status:
+        type: string
+      type:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.TransferHostRequest:
+    properties:
+      new_host_id:
+        type: string
+    required:
+    - new_host_id
+    type: object
+host: api-meeting.infoquang.id.vn
+info:
+  contact:
+    email: support@infoquang.id.vn
+    name: API Support
+    url: https://api-meeting.infoquang.id.vn/support
+  description: API for Meeting Assistant application with OAuth, room management,
+    and LiveKit integration
+  license:
+    name: Apache 2.0
+    url: http://www.apache.org/licenses/LICENSE-2.0.html
+  termsOfService: https://api-meeting.infoquang.id.vn/terms
+  title: Meeting Assistant API
+  version: "1.0"
+paths:
+  /auth/google/callback:
+    get:
+      consumes:
+      - application/json
+      description: Processes the OAuth callback from Google and returns JWT tokens
+      parameters:
+      - description: Authorization code from Google
+        in: query
+        name: code
+        required: true
+        type: string
+      - description: State parameter for CSRF protection
+        in: query
+        name: state
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Authentication successful
+          schema:
+            $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.AuthResponse'
+        "400":
+          description: Missing code or state
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Authentication failed
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Handle Google OAuth callback
+      tags:
+      - Authentication
+  /auth/google/login:
+    get:
+      description: Redirects user to Google OAuth consent screen
+      produces:
+      - application/json
+      responses:
+        "307":
+          description: Redirect to Google OAuth
+          schema:
+            type: string
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Initiate Google OAuth login
+      tags:
+      - Authentication
+  /auth/logout:
+    post:
+      consumes:
+      - application/json
+      description: Invalidates the refresh token and logs out the user
+      parameters:
+      - description: Refresh token to invalidate
+        in: body
+        name: request
+        required: true
+        schema:
+          properties:
+            refresh_token:
+              type: string
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Logged out successfully
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Missing refresh token
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Failed to logout
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Logout user
+      tags:
+      - Authentication
+  /auth/me:
+    get:
+      description: Returns the authenticated user's information
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: User information
+          schema:
+            $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.UserResponse'
+        "401":
+          description: Missing or invalid token
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get current user
+      tags:
+      - Authentication
+  /auth/refresh:
+    post:
+      consumes:
+      - application/json
+      description: Gets a new access token using a refresh token
+      parameters:
+      - description: Refresh token
+        in: body
+        name: request
+        required: true
+        schema:
+          properties:
+            refresh_token:
+              type: string
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Token refreshed successfully
+          schema:
+            $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.AuthResponse'
+        "400":
+          description: Invalid request or missing token
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Failed to refresh token
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Refresh access token
+      tags:
+      - Authentication
+  /rooms:
+    get:
+      description: Gets a paginated list of rooms with optional filters
+      parameters:
+      - description: 'Page number (default: 1)'
+        in: query
+        name: page
+        type: integer
+      - description: 'Items per page (default: 20)'
+        in: query
+        name: page_size
+        type: integer
+      - description: Room type filter (public/private/scheduled)
+        in: query
+        name: type
+        type: string
+      - description: Room status filter (scheduled/active/ended/cancelled)
+        in: query
+        name: status
+        type: string
+      - description: Search by room name
+        in: query
+        name: search
+        type: string
+      - description: Filter by tags
+        in: query
+        name: tags
+        type: array
+      - description: Sort field (created_at/start_time/participant_count)
+        in: query
+        name: sort_by
+        type: string
+      - description: Sort order (asc/desc)
+        in: query
+        name: sort_order
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: List of rooms
+          schema:
+            $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.RoomListResponse'
+        "400":
+          description: Invalid request
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Failed to list rooms
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List rooms
+      tags:
+      - Rooms
+    post:
+      consumes:
+      - application/json
+      description: Creates a new meeting room with specified settings
+      parameters:
+      - description: Room creation request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.CreateRoomRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Room created successfully
+          schema:
+            $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.RoomResponse'
+        "400":
+          description: Invalid request or validation failed
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: User not authenticated
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Failed to create room
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create a new room
+      tags:
+      - Rooms
+  /rooms/{id}:
+    get:
+      description: Gets detailed information about a specific room
+      parameters:
+      - description: Room ID (UUID)
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Room details
+          schema:
+            $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.RoomResponse'
+        "400":
+          description: Invalid room ID
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Room not found
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get room details
+      tags:
+      - Rooms
+  /rooms/{id}/end:
+    post:
+      description: Ends a room session (host only)
+      parameters:
+      - description: Room ID (UUID)
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Room ended successfully
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid room ID
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: User not authenticated
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: User is not the host
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Failed to end room
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: End a room
+      tags:
+      - Rooms
+  /rooms/{id}/join:
+    post:
+      consumes:
+      - application/json
+      description: Allows a user to join an existing room and get LiveKit credentials
+      parameters:
+      - description: Room ID (UUID)
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Successfully joined room with LiveKit credentials
+          schema:
+            $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.JoinRoomResponse'
+        "400":
+          description: Invalid room ID or room is full
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: User not authenticated
+          schema:
+            additionalProperties: true
+            type: object
+        "409":
+          description: User already in room
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Failed to join room
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Join a room
+      tags:
+      - Rooms
+  /rooms/{id}/leave:
+    post:
+      description: Allows a user to leave a room they are currently in
+      parameters:
+      - description: Room ID (UUID)
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Successfully left the room
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid room ID
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: User not authenticated
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Failed to leave room
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Leave a room
+      tags:
+      - Rooms
+  /rooms/{id}/participants:
+    get:
+      description: Gets a list of all participants in a room
+      parameters:
+      - description: Room ID (UUID)
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: List of participants
+          schema:
+            $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.ParticipantListResponse'
+        "400":
+          description: Invalid room ID
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Failed to get participants
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get room participants
+      tags:
+      - Participants
+  /rooms/{id}/participants/{pid}:
+    delete:
+      consumes:
+      - application/json
+      description: Removes a participant from the room (host/co-host only)
+      parameters:
+      - description: Room ID (UUID)
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Participant ID (UUID)
+        in: path
+        name: pid
+        required: true
+        type: string
+      - description: Reason for removal
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.RemoveParticipantRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Participant removed successfully
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid room or participant ID
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: User not authenticated
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: User is not the host
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Failed to remove participant
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Remove a participant
+      tags:
+      - Participants
+  /rooms/{id}/transfer-host:
+    post:
+      consumes:
+      - application/json
+      description: Transfers the host role to another participant (host only)
+      parameters:
+      - description: Room ID (UUID)
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: New host user ID
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.TransferHostRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Host transferred successfully
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid room ID, new host ID, or new host is not a participant
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: User not authenticated
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: User is not the host
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Failed to transfer host
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Transfer host role
+      tags:
+      - Participants
+securityDefinitions:
+  BearerAuth:
+    description: Type "Bearer" followed by a space and JWT token.
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"
