@@ -114,25 +114,37 @@ jobs:
             CORS_ALLOWED_ORIGINS=${{ secrets.CORS_ALLOWED_ORIGINS }}
             EOF
 
-            # 4. Dừng và xóa containers cũ
-            echo "Stopping and removing old containers..."
-            docker-compose -f docker-compose.prod.yml down
+            # 4. Xác định lệnh docker compose (hỗ trợ cả version cũ và mới)
+            if command -v docker-compose &> /dev/null; then
+              DOCKER_COMPOSE="docker-compose"
+              echo "✅ Using docker-compose (standalone)"
+            elif docker compose version &> /dev/null; then
+              DOCKER_COMPOSE="docker compose"
+              echo "✅ Using docker compose (plugin)"
+            else
+              echo "❌ Error: Neither docker-compose nor docker compose found!"
+              exit 1
+            fi
 
-            # 5. Xóa image cũ của app để force rebuild
-            echo "Removing old app images..."
+            # 5. Dừng và xóa containers cũ
+            echo "🛑 Stopping and removing old containers..."
+            $DOCKER_COMPOSE -f docker-compose.prod.yml down
+
+            # 6. Xóa image cũ của app để force rebuild
+            echo "🗑️  Removing old app images..."
             docker rmi meeting-assistant-app-prod 2>/dev/null || true
             docker images | grep meeting-assistant | awk '{print $3}' | xargs docker rmi -f 2>/dev/null || true
 
-            # 6. Xây dựng lại image mới (không dùng cache)
-            echo "Building new images without cache..."
-            docker-compose -f docker-compose.prod.yml build --no-cache --pull app
+            # 7. Xây dựng lại image mới (không dùng cache)
+            echo "🔨 Building new images without cache..."
+            $DOCKER_COMPOSE -f docker-compose.prod.yml build --no-cache --pull app
 
-            # 7. Chạy containers mới
-            echo "Starting new containers..."
-            docker-compose -f docker-compose.prod.yml up -d --remove-orphans
+            # 8. Chạy containers mới
+            echo "🚀 Starting new containers..."
+            $DOCKER_COMPOSE -f docker-compose.prod.yml up -d --remove-orphans
 
-            # 8. Dọn dẹp images và containers không dùng
-            echo "Cleaning up unused images..."
+            # 9. Dọn dẹp images và containers không dùng
+            echo "🧹 Cleaning up unused images..."
             docker image prune -af
             docker container prune -f
 
@@ -143,10 +155,11 @@ jobs:
           username: ${{ secrets.SSH_USERNAME }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
-            echo "Waiting for services to start..."
+            echo "⏳ Waiting for services to start..."
             sleep 20
-            echo "Checking health endpoint..."
-            curl -f http://localhost:8080/health || (echo "Health check failed!" && exit 1)
+            echo "🏥 Checking health endpoint..."
+            curl -f http://localhost:8080/health || (echo "❌ Health check failed!" && exit 1)
+            echo "✅ Health check passed!"
 
       - name: Notify Deployment Status
         if: always()
