@@ -29,13 +29,46 @@ jobs:
 
             # 1. Chuẩn bị thư mục project
             cd ~
-            if [ ! -d "meeting-assistant" ]; then
+            
+            # Kiểm tra và xử lý repository
+            if [ -d "meeting-assistant" ]; then
+              echo "Project folder exists. Checking remote configuration..."
+              cd meeting-assistant
+              
+              # Backup .env nếu tồn tại
+              if [ -f ".env" ]; then
+                cp .env ~/.env.backup
+                echo ".env backed up"
+              fi
+              
+              # Kiểm tra remote URL
+              CURRENT_REMOTE=$(git remote get-url origin 2>/dev/null || echo "")
+              if [[ "$CURRENT_REMOTE" != *"x-access-token"* ]]; then
+                echo "Remote URL không có token, đang fix..."
+                cd ~
+                rm -rf meeting-assistant
+                git clone https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }} meeting-assistant
+                cd meeting-assistant
+                
+                # Restore .env nếu có
+                if [ -f ~/.env.backup ]; then
+                  cp ~/.env.backup .env
+                  echo ".env restored"
+                fi
+              else
+                echo "Remote URL đã có token authentication"
+              fi
+            else
               echo "Project folder not found. Cloning..."
               git clone https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }} meeting-assistant
+              cd meeting-assistant
             fi
-            cd meeting-assistant
 
-            # 2. Cập nhật code mới nhất (đảm bảo pull được code mới)
+            # 2. Đảm bảo remote URL luôn có token
+            echo "Updating Git remote with authentication..."
+            git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}
+
+            # 3. Cập nhật code mới nhất (đảm bảo pull được code mới)
             echo "Fetching latest code..."
             git fetch --all
             git reset --hard origin/main
