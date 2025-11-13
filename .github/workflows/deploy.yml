@@ -35,10 +35,15 @@ jobs:
             fi
             cd meeting-assistant
 
-            # 2. Cập nhật code mới nhất
+            # 2. Cập nhật code mới nhất (đảm bảo pull được code mới)
             echo "Fetching latest code..."
-            git fetch origin main
+            git fetch --all
             git reset --hard origin/main
+            git pull origin main
+            
+            # Hiển thị commit hiện tại để verify
+            echo "Current commit:"
+            git log -1 --oneline
 
             # 3. Tạo lại file .env (ghi đè mỗi lần deploy để đảm bảo đồng bộ secrets)
             echo "Recreating .env file..."
@@ -76,16 +81,27 @@ jobs:
             CORS_ALLOWED_ORIGINS=${{ secrets.CORS_ALLOWED_ORIGINS }}
             EOF
 
-            # 4. Dừng containers cũ (nếu có)
-            echo "Stopping old containers..."
-            docker-compose -f docker-compose.prod.yml down || true
+            # 4. Dừng và xóa containers cũ
+            echo "Stopping and removing old containers..."
+            docker-compose -f docker-compose.prod.yml down
 
-            # 5. Xây dựng và chạy containers mới
+            # 5. Xóa image cũ của app để force rebuild
+            echo "Removing old app images..."
+            docker rmi meeting-assistant-app-prod 2>/dev/null || true
+            docker images | grep meeting-assistant | awk '{print $3}' | xargs docker rmi -f 2>/dev/null || true
+
+            # 6. Xây dựng lại image mới (không dùng cache)
+            echo "Building new images without cache..."
+            docker-compose -f docker-compose.prod.yml build --no-cache --pull app
+
+            # 7. Chạy containers mới
             echo "Starting new containers..."
-            docker-compose -f docker-compose.prod.yml up -d --build --remove-orphans
+            docker-compose -f docker-compose.prod.yml up -d --remove-orphans
 
-            # 6. Dọn dẹp images không dùng
+            # 8. Dọn dẹp images và containers không dùng
+            echo "Cleaning up unused images..."
             docker image prune -af
+            docker container prune -f
 
       - name: Health Check
         uses: appleboy/ssh-action@v1.0.0
