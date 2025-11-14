@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/johnquangdev/meeting-assistant/internal/domain/entities"
 	"github.com/johnquangdev/meeting-assistant/internal/domain/repositories"
+	"github.com/johnquangdev/meeting-assistant/internal/infrastructure/cache"
 	"github.com/johnquangdev/meeting-assistant/internal/infrastructure/external/oauth"
 	"github.com/johnquangdev/meeting-assistant/pkg/jwt"
 )
@@ -16,6 +17,7 @@ import (
 type OAuthService struct {
 	userRepo     repositories.UserRepository
 	sessionRepo  repositories.SessionRepository
+	cache        *cache.RedisClient
 	google       *oauth.GoogleProvider
 	stateManager *oauth.StateManager
 	jwtManager   *jwt.Manager
@@ -25,6 +27,7 @@ type OAuthService struct {
 func NewOAuthService(
 	userRepo repositories.UserRepository,
 	sessionRepo repositories.SessionRepository,
+	cache *cache.RedisClient,
 	google *oauth.GoogleProvider,
 	stateManager *oauth.StateManager,
 	jwtManager *jwt.Manager,
@@ -32,6 +35,7 @@ func NewOAuthService(
 	return &OAuthService{
 		userRepo:     userRepo,
 		sessionRepo:  sessionRepo,
+		cache:        cache,
 		google:       google,
 		stateManager: stateManager,
 		jwtManager:   jwtManager,
@@ -174,6 +178,10 @@ func (s *OAuthService) HandleGoogleCallback(ctx context.Context, req *GoogleCall
 	if err := s.sessionRepo.Create(ctx, session); err != nil {
 		return nil, fmt.Errorf("failed to create session: %w", err)
 	}
+	// Save access token to redis
+	if err := s.cache.SaveAccessToken(ctx, user.ID, accessToken, s.jwtManager.GetAccessExpiry()); err != nil {
+		return nil, fmt.Errorf("failed to save access token to redis: %w", err)
+	}
 
 	return &AuthResponse{
 		User:         user,
@@ -211,39 +219,24 @@ func (s *OAuthService) RefreshAccessToken(ctx context.Context, refreshToken stri
 	if err != nil {
 		return nil, fmt.Errorf("failed to find user: %w", err)
 	}
+	// add blacklist
+	if err := s.cache.DeleteAccessToken(ctx, user.ID); err != nil {
+		return nil, fmt.Errorf("failed to delete old access token from redis: %w", err)
+	}
 
-	// Generate new tokens
+	// Generate new access token
 	newAccessToken, err := s.jwtManager.GenerateAccessToken(user.ID, user.Email, string(user.Role))
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate access token: %w", err)
 	}
-
-	newRefreshToken, err := s.jwtManager.GenerateRefreshToken(user.ID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate refresh token: %w", err)
+	// Save new access token to redis
+	if err := s.cache.SaveAccessToken(ctx, user.ID, newAccessToken, s.jwtManager.GetAccessExpiry()); err != nil {
+		return nil, fmt.Errorf("failed to save new access token to redis: %w", err)
 	}
-
-	// Revoke old session
-	if err := s.sessionRepo.Revoke(ctx, session.ID); err != nil {
-		return nil, fmt.Errorf("failed to revoke old session: %w", err)
-	}
-
-	// Create new session
-	newSession := entities.NewSession(
-		user.ID,
-		newRefreshToken,
-		time.Now().Add(s.jwtManager.GetRefreshExpiry()),
-	)
-
-	if err := s.sessionRepo.Create(ctx, newSession); err != nil {
-		return nil, fmt.Errorf("failed to create session: %w", err)
-	}
-
 	return &AuthResponse{
-		User:         user,
-		AccessToken:  newAccessToken,
-		RefreshToken: newRefreshToken,
-		ExpiresIn:    int64(s.jwtManager.GetAccessExpiry().Seconds()),
+		User:        user,
+		AccessToken: newAccessToken,
+		ExpiresIn:   int64(s.jwtManager.GetAccessExpiry().Seconds()),
 	}, nil
 }
 
@@ -283,6 +276,11 @@ func (s *OAuthService) Logout(ctx context.Context, refreshToken string) error {
 	session, err := s.sessionRepo.FindByTokenHash(ctx, refreshToken)
 	if err != nil {
 		return entities.ErrSessionNotFound
+	}
+
+	// Delete access token from redis
+	if err := s.cache.DeleteAccessToken(ctx, session.UserID); err != nil {
+		return fmt.Errorf("failed to delete access token from redis: %w", err)
 	}
 
 	return s.sessionRepo.Revoke(ctx, session.ID)

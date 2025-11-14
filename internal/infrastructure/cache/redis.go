@@ -6,6 +6,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 
 	"github.com/johnquangdev/meeting-assistant/pkg/config"
@@ -88,4 +89,22 @@ func (r *RedisClient) Close() error {
 // GetClient returns the underlying Redis client for advanced operations
 func (r *RedisClient) GetClient() *redis.Client {
 	return r.client
+}
+
+// SaveAccessToken saves the access token to Redis with expiration
+func (r *RedisClient) SaveAccessToken(ctx context.Context, userID uuid.UUID, accessToken string, expiration time.Duration) error {
+	key := fmt.Sprintf("access_token:%s", userID.String())
+	return r.Set(ctx, key, accessToken, expiration)
+}
+
+// GetAccessToken retrieves the access token from Redis
+func (r *RedisClient) GetAccessToken(ctx context.Context, userID uuid.UUID) (string, error) {
+	key := fmt.Sprintf("access_token:%s", userID.String())
+	return r.Get(ctx, key)
+}
+
+// DeleteAccessToken deletes the access token from Redis
+func (r *RedisClient) DeleteAccessToken(ctx context.Context, userID uuid.UUID) error {
+	key := fmt.Sprintf("access_token:%s", userID.String())
+	return r.Delete(ctx, key)
 }

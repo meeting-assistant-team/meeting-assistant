@@ -1,5 +1,29 @@
 basePath: /v1
 definitions:
+  github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.AuthResponse:
+    properties:
+      access_token:
+        type: string
+      expires_in:
+        description: seconds
+        type: integer
+      refresh_token:
+        type: string
+      token_type:
+        description: '"Bearer"'
+        type: string
+      user:
+        $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.UserResponse'
+    type: object
+  github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.RefreshTokenResponse:
+    properties:
+      access_token:
+        type: string
+      expires_in:
+        type: integer
+      token_type:
+        type: string
+    type: object
   github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.UserResponse:
     properties:
       avatar_url:
@@ -189,75 +213,6 @@ definitions:
     required:
     - new_host_id
     type: object
-  github_com_johnquangdev_meeting-assistant_internal_domain_entities.User:
-    properties:
-      avatar_url:
-        description: Profile
-        type: string
-      bio:
-        type: string
-      created_at:
-        description: Timestamps
-        type: string
-      email:
-        type: string
-      id:
-        type: string
-      is_active:
-        type: boolean
-      is_email_verified:
-        description: Status
-        type: boolean
-      language:
-        type: string
-      last_active_at:
-        type: string
-      last_login_at:
-        type: string
-      meeting_preferences:
-        items:
-          type: integer
-        type: array
-      name:
-        type: string
-      notification_preferences:
-        description: Preferences (stored as JSONB in PostgreSQL)
-        items:
-          type: integer
-        type: array
-      oauth_id:
-        type: string
-      oauth_provider:
-        description: OAuth fields
-        type: string
-      role:
-        $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_domain_entities.UserRole'
-      timezone:
-        type: string
-      updated_at:
-        type: string
-    type: object
-  github_com_johnquangdev_meeting-assistant_internal_domain_entities.UserRole:
-    enum:
-    - admin
-    - host
-    - participant
-    type: string
-    x-enum-varnames:
-    - RoleAdmin
-    - RoleHost
-    - RoleParticipant
-  github_com_johnquangdev_meeting-assistant_internal_usecase_auth.AuthResponse:
-    properties:
-      access_token:
-        type: string
-      expires_in:
-        type: integer
-      refresh_token:
-        type: string
-      user:
-        $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_domain_entities.User'
-    type: object
 host: api-meeting.infoquang.id.vn
 info:
   contact:
@@ -295,7 +250,7 @@ paths:
         "200":
           description: Authentication successful
           schema:
-            $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_usecase_auth.AuthResponse'
+            $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.AuthResponse'
         "400":
           description: Missing code or state
           schema:
@@ -373,8 +328,7 @@ paths:
         "200":
           description: User information
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.UserResponse'
         "401":
           description: Missing or invalid token
           schema:
@@ -406,7 +360,7 @@ paths:
         "200":
           description: Token refreshed successfully
           schema:
-            $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_usecase_auth.AuthResponse'
+            $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.RefreshTokenResponse'
         "400":
           description: Invalid request or missing token
           schema:
