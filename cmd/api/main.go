@@ -137,6 +137,7 @@ func main() {
 	oauthService := auth.NewOAuthService(
 		userRepo,
 		sessionRepo,
+		redisClient,
 		googleProvider,
 		stateManager,
 		jwtManager,

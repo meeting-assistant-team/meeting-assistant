@@ -74,4 +74,4 @@ killport: ## Kill process on port (usage: make killport PORT=8080)
 
 swagger: ## Generate Swagger documentation
 	@echo "Generating Swagger docs..."
-	swag init -g cmd/api/main.go --parseDependency --parseInternal --parseDepth 2
+	swag init -g cmd/api/main.go --parseDependency --parseInternal --parseDepth 2 --output docs/swagger

@@ -94,7 +94,7 @@ func (h *Auth) GoogleCallback(c echo.Context) error {
 // @Accept       json
 // @Produce      json
 // @Param        request  body      object{refresh_token=string}  true  "Refresh token"
-// @Success      200      {object}  github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.AuthResponse  "Token refreshed successfully"
+// @Success      200      {object}  github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.RefreshTokenResponse  "Token refreshed successfully"
 // @Failure      400      {object}  map[string]interface{}  "Invalid request or missing token"
 // @Failure      401      {object}  map[string]interface{}  "Failed to refresh token"
 // @Router       /auth/refresh [post]
@@ -126,8 +126,8 @@ func (h *Auth) RefreshToken(c echo.Context) error {
 		})
 	}
 
-	// Convert usecase response to DTO
-	response := presenter.ToAuthResponse(usecaseResp)
+	// Convert usecase response to DTO (no refresh token in response)
+	response := presenter.ToAuthRefreshTokenResponse(usecaseResp)
 	return c.JSON(http.StatusOK, response)
 }
 

@@ -48,6 +48,19 @@ func ToUserResponse(u *entities.User) *authDTO.UserResponse {
 }
 
 // ToAuthResponse converts usecase AuthResponse to DTO AuthResponse
+// ToAuthRefreshTokenResponse converts usecase AuthResponse to DTO RefreshTokenResponse (for refresh endpoint)
+func ToAuthRefreshTokenResponse(usecaseResp *auth.AuthResponse) *authDTO.RefreshTokenResponse {
+	if usecaseResp == nil {
+		return nil
+	}
+	return &authDTO.RefreshTokenResponse{
+		AccessToken: usecaseResp.AccessToken,
+		ExpiresIn:   int(usecaseResp.ExpiresIn),
+		TokenType:   "Bearer",
+	}
+}
+
+// ToAuthResponse converts usecase AuthResponse to DTO AuthResponse
 func ToAuthResponse(usecaseResp *auth.AuthResponse) *authDTO.AuthResponse {
 	if usecaseResp == nil {
 		return nil
