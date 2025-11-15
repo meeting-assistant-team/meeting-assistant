@@ -79,7 +79,7 @@ const docTemplate = `{
         },
         "/auth/google/login": {
             "get": {
-                "description": "Redirects user to Google OAuth consent screen",
+                "description": "Redirects user to Google OAuth consent screen. **Flow cho FE:** 1. Gọi endpoint này từ browser (` + "`" + `window.location.href = 'https://api-meeting.infoquang.id.vn/v1/auth/google/login'` + "`" + `). 2. User được redirect đến Google để đăng nhập. 3. Sau khi đăng nhập thành công, Google redirect về ` + "`" + `/auth/google/callback` + "`" + `. 4. Backend xử lý và redirect về FRONTEND_URL với tokens trong query params.",
                 "produces": [
                     "application/json"
                 ],
@@ -106,7 +106,7 @@ const docTemplate = `{
         },
         "/auth/logout": {
             "post": {
-                "description": "Invalidates the refresh token and logs out the user",
+                "description": "Invalidates the refresh token and logs out the user. **Request body:** ` + "`" + `{\"refresh_token\": \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...\"}` + "`" + ` **Sau khi logout thành công, FE cần:** Xóa access_token và refresh_token khỏi localStorage/sessionStorage, sau đó redirect user về trang login.",
                 "consumes": [
                     "application/json"
                 ],
@@ -167,7 +167,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns the authenticated user's information",
+                "description": "Returns the authenticated user's information. **Yêu cầu:** Header ` + "`" + `Authorization: Bearer \u003caccess_token\u003e` + "`" + `. Không có tham số query/body. **Ví dụ:** ` + "`" + `curl -H \"Authorization: Bearer \u003ctoken\u003e\" https://api-meeting.infoquang.id.vn/v1/auth/me` + "`" + `",
                 "produces": [
                     "application/json"
                 ],
@@ -194,7 +194,7 @@ const docTemplate = `{
         },
         "/auth/refresh": {
             "post": {
-                "description": "Gets a new access token using a refresh token",
+                "description": "Gets a new access token using a refresh token. **Khi nào dùng:** Khi access_token hết hạn (401 Unauthorized) hoặc trước khi hết hạn để tránh gián đoạn UX. **Request body:** ` + "`" + `{\"refresh_token\": \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...\"}` + "`" + `",
                 "consumes": [
                     "application/json"
                 ],
