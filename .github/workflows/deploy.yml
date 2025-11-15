@@ -78,41 +78,60 @@ jobs:
             echo "Current commit:"
             git log -1 --oneline
 
-            # 3. Tạo lại file .env (ghi đè mỗi lần deploy để đảm bảo đồng bộ secrets)
-            echo "Recreating .env file..."
-            cat > .env << EOF
-            # Server Configuration
-            APP_ENV=production
-            APP_PORT=8080
-            APP_HOST=0.0.0.0
-
-            # Database Configuration
-            DB_HOST=postgres
-            DB_PORT=5432
-            DB_USER=postgres
-            DB_PASSWORD=${{ secrets.DB_PASSWORD }}
-            DB_NAME=meeting_assistant
-            DB_SSLMODE=disable
-
-            # Redis Configuration
-            REDIS_HOST=redis
-            REDIS_PORT=6379
-            REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
-            REDIS_DB=0
-
-            # JWT Configuration
-            JWT_SECRET=${{ secrets.JWT_SECRET }}
-            JWT_ACCESS_TOKEN_EXPIRE=15m
-            JWT_REFRESH_TOKEN_EXPIRE=7d
-
-            # Google OAuth Configuration
-            GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}
-            GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}
-            GOOGLE_REDIRECT_URL=${{ secrets.GOOGLE_REDIRECT_URL }}
-
-            # CORS Configuration
-            CORS_ALLOWED_ORIGINS=${{ secrets.CORS_ALLOWED_ORIGINS }}
-            EOF
+            # 3. Export environment variables từ GitHub Secrets
+            echo "Setting up environment variables..."
+            export ENVIRONMENT=production
+            export PORT=8080
+            export ALLOWED_ORIGINS="${{ secrets.ALLOWED_ORIGINS }}"
+            export SHUTDOWN_TIMEOUT=10
+            
+            # Database
+            export DB_USER=postgres
+            export DB_PASSWORD="${{ secrets.DB_PASSWORD }}"
+            export DB_NAME=meeting_assistant
+            export DB_SSLMODE=disable
+            export DB_MAX_OPEN_CONNS=25
+            export DB_MAX_IDLE_CONNS=5
+            export DB_CONN_MAX_LIFETIME=5m
+            
+            # Redis
+            export REDIS_PASSWORD="${{ secrets.REDIS_PASSWORD }}"
+            export REDIS_DB=0
+            
+            # JWT
+            export JWT_ACCESS_TOKEN_SECRET="${{ secrets.JWT_ACCESS_TOKEN_SECRET }}"
+            export JWT_REFRESH_TOKEN_SECRET="${{ secrets.JWT_REFRESH_TOKEN_SECRET }}"
+            export JWT_ACCESS_TOKEN_EXPIRE=1h
+            export JWT_REFRESH_TOKEN_EXPIRE=720h
+            
+            # Google OAuth
+            export GOOGLE_CLIENT_ID="${{ secrets.GOOGLE_CLIENT_ID }}"
+            export GOOGLE_CLIENT_SECRET="${{ secrets.GOOGLE_CLIENT_SECRET }}"
+            export GOOGLE_REDIRECT_URL="${{ secrets.GOOGLE_REDIRECT_URL }}"
+            
+            # LiveKit
+            export LIVEKIT_API_KEY="${{ secrets.LIVEKIT_API_KEY }}"
+            export LIVEKIT_API_SECRET="${{ secrets.LIVEKIT_API_SECRET }}"
+            export LIVEKIT_URL="${{ secrets.LIVEKIT_URL }}"
+            
+            # MinIO
+            export MINIO_ENDPOINT="${{ secrets.MINIO_ENDPOINT }}"
+            export MINIO_ACCESS_KEY="${{ secrets.MINIO_ACCESS_KEY }}"
+            export MINIO_SECRET_KEY="${{ secrets.MINIO_SECRET_KEY }}"
+            export MINIO_USE_SSL=false
+            export MINIO_BUCKET_NAME=meeting-recordings
+            
+            # OpenAI
+            export OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}"
+            
+            # Frontend
+            export FRONTEND_URL="${{ secrets.FRONTEND_URL }}"
+            
+            # Logging
+            export LOG_LEVEL=info
+            export LOG_FORMAT=json
+            export RATE_LIMIT_REQUESTS=100
+            export RATE_LIMIT_WINDOW=1m
 
             # 4. Xác định lệnh docker compose (hỗ trợ cả version cũ và mới)
             if command -v docker-compose &> /dev/null; then
