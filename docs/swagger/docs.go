@@ -57,7 +57,7 @@ const docTemplate = `{
                     "200": {
                         "description": "Authentication successful",
                         "schema": {
-                            "$ref": "#/definitions/github_com_johnquangdev_meeting-assistant_internal_usecase_auth.AuthResponse"
+                            "$ref": "#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.AuthResponse"
                         }
                     },
                     "400": {
@@ -79,7 +79,7 @@ const docTemplate = `{
         },
         "/auth/google/login": {
             "get": {
-                "description": "Redirects user to Google OAuth consent screen",
+                "description": "Redirects user to Google OAuth consent screen. **Flow cho FE:** 1. Gọi endpoint này từ browser (` + "`" + `window.location.href = 'https://api-meeting.infoquang.id.vn/v1/auth/google/login'` + "`" + `). 2. User được redirect đến Google để đăng nhập. 3. Sau khi đăng nhập thành công, Google redirect về ` + "`" + `/auth/google/callback` + "`" + `. 4. Backend xử lý và redirect về FRONTEND_URL với tokens trong query params.",
                 "produces": [
                     "application/json"
                 ],
@@ -106,7 +106,7 @@ const docTemplate = `{
         },
         "/auth/logout": {
             "post": {
-                "description": "Invalidates the refresh token and logs out the user",
+                "description": "Invalidates the refresh token and logs out the user. **Request body:** ` + "`" + `{\"refresh_token\": \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...\"}` + "`" + ` **Sau khi logout thành công, FE cần:** Xóa access_token và refresh_token khỏi localStorage/sessionStorage, sau đó redirect user về trang login.",
                 "consumes": [
                     "application/json"
                 ],
@@ -167,7 +167,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns the authenticated user's information",
+                "description": "Returns the authenticated user's information. **Yêu cầu:** Header ` + "`" + `Authorization: Bearer \u003caccess_token\u003e` + "`" + `. Không có tham số query/body. **Ví dụ:** ` + "`" + `curl -H \"Authorization: Bearer \u003ctoken\u003e\" https://api-meeting.infoquang.id.vn/v1/auth/me` + "`" + `",
                 "produces": [
                     "application/json"
                 ],
@@ -179,8 +179,7 @@ const docTemplate = `{
                     "200": {
                         "description": "User information",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": true
+                            "$ref": "#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.UserResponse"
                         }
                     },
                     "401": {
@@ -195,7 +194,7 @@ const docTemplate = `{
         },
         "/auth/refresh": {
             "post": {
-                "description": "Gets a new access token using a refresh token",
+                "description": "Gets a new access token using a refresh token. **Khi nào dùng:** Khi access_token hết hạn (401 Unauthorized) hoặc trước khi hết hạn để tránh gián đoạn UX. **Request body:** ` + "`" + `{\"refresh_token\": \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...\"}` + "`" + `",
                 "consumes": [
                     "application/json"
                 ],
@@ -226,7 +225,7 @@ const docTemplate = `{
                     "200": {
                         "description": "Token refreshed successfully",
                         "schema": {
-                            "$ref": "#/definitions/github_com_johnquangdev_meeting-assistant_internal_usecase_auth.AuthResponse"
+                            "$ref": "#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.RefreshTokenResponse"
                         }
                     },
                     "400": {
@@ -828,9 +827,76 @@ const docTemplate = `{
                     }
                 }
             }
+        },
+        "/webhooks/livekit": {
+            "post": {
+                "description": "Receives webhook events from LiveKit server",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Webhooks"
+                ],
+                "summary": "LiveKit Webhook",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
         }
     },
     "definitions": {
+        "github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.AuthResponse": {
+            "type": "object",
+            "properties": {
+                "access_token": {
+                    "type": "string"
+                },
+                "expires_in": {
+                    "description": "seconds",
+                    "type": "integer"
+                },
+                "refresh_token": {
+                    "type": "string"
+                },
+                "token_type": {
+                    "description": "\"Bearer\"",
+                    "type": "string"
+                },
+                "user": {
+                    "$ref": "#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.UserResponse"
+                }
+            }
+        },
+        "github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.RefreshTokenResponse": {
+            "type": "object",
+            "properties": {
+                "access_token": {
+                    "type": "string"
+                },
+                "expires_in": {
+                    "type": "integer"
+                },
+                "token_type": {
+                    "type": "string"
+                }
+            }
+        },
         "github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.UserResponse": {
             "type": "object",
             "properties": {
@@ -915,6 +981,10 @@ const docTemplate = `{
         "github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.JoinRoomResponse": {
             "type": "object",
             "properties": {
+                "join_url": {
+                    "description": "URL để share cho users khác",
+                    "type": "string"
+                },
                 "livekit_token": {
                     "type": "string"
                 },
@@ -1065,6 +1135,10 @@ const docTemplate = `{
                 "id": {
                     "type": "string"
                 },
+                "join_url": {
+                    "description": "Meeting URL để share",
+                    "type": "string"
+                },
                 "livekit_room_name": {
                     "type": "string"
                 },
@@ -1109,106 +1183,6 @@ const docTemplate = `{
             "properties": {
                 "new_host_id": {
                     "type": "string"
-                }
-            }
-        },
-        "github_com_johnquangdev_meeting-assistant_internal_domain_entities.User": {
-            "type": "object",
-            "properties": {
-                "avatar_url": {
-                    "description": "Profile",
-                    "type": "string"
-                },
-                "bio": {
-                    "type": "string"
-                },
-                "created_at": {
-                    "description": "Timestamps",
-                    "type": "string"
-                },
-                "email": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "is_active": {
-                    "type": "boolean"
-                },
-                "is_email_verified": {
-                    "description": "Status",
-                    "type": "boolean"
-                },
-                "language": {
-                    "type": "string"
-                },
-                "last_active_at": {
-                    "type": "string"
-                },
-                "last_login_at": {
-                    "type": "string"
-                },
-                "meeting_preferences": {
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
-                    }
-                },
-                "name": {
-                    "type": "string"
-                },
-                "notification_preferences": {
-                    "description": "Preferences (stored as JSONB in PostgreSQL)",
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
-                    }
-                },
-                "oauth_id": {
-                    "type": "string"
-                },
-                "oauth_provider": {
-                    "description": "OAuth fields",
-                    "type": "string"
-                },
-                "role": {
-                    "$ref": "#/definitions/github_com_johnquangdev_meeting-assistant_internal_domain_entities.UserRole"
-                },
-                "timezone": {
-                    "type": "string"
-                },
-                "updated_at": {
-                    "type": "string"
-                }
-            }
-        },
-        "github_com_johnquangdev_meeting-assistant_internal_domain_entities.UserRole": {
-            "type": "string",
-            "enum": [
-                "admin",
-                "host",
-                "participant"
-            ],
-            "x-enum-varnames": [
-                "RoleAdmin",
-                "RoleHost",
-                "RoleParticipant"
-            ]
-        },
-        "github_com_johnquangdev_meeting-assistant_internal_usecase_auth.AuthResponse": {
-            "type": "object",
-            "properties": {
-                "access_token": {
-                    "type": "string"
-                },
-                "expires_in": {
-                    "type": "integer"
-                },
-                "refresh_token": {
-                    "type": "string"
-                },
-                "user": {
-                    "$ref": "#/definitions/github_com_johnquangdev_meeting-assistant_internal_domain_entities.User"
                 }
             }
         }

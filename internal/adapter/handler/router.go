@@ -12,22 +12,24 @@ import (
 
 // Router holds all handlers
 type Router struct {
-	cfg         *config.Config
-	authHandler *Auth
-	roomHandler *Room
-	authMW      echo.MiddlewareFunc
+	cfg            *config.Config
+	authHandler    *Auth
+	roomHandler    *Room
+	webhookHandler *WebhookHandler
+	authMW         echo.MiddlewareFunc
 	// Add more handlers here as needed
 	// recordingHandler *Recording
 	// reportHandler *Report
 }
 
 // NewRouter creates a new router with all handlers
-func NewRouter(cfg *config.Config, authHandler *Auth, roomHandler *Room, authMW echo.MiddlewareFunc) *Router {
+func NewRouter(cfg *config.Config, authHandler *Auth, roomHandler *Room, webhookHandler *WebhookHandler, authMW echo.MiddlewareFunc) *Router {
 	return &Router{
-		cfg:         cfg,
-		authHandler: authHandler,
-		roomHandler: roomHandler,
-		authMW:      authMW,
+		cfg:            cfg,
+		authHandler:    authHandler,
+		roomHandler:    roomHandler,
+		webhookHandler: webhookHandler,
+		authMW:         authMW,
 	}
 }
 
@@ -45,6 +47,7 @@ func (rt *Router) Setup(e *echo.Echo) {
 	// Setup route groups
 	rt.setupAuthRoutes(v1)
 	rt.setupRoomRoutes(v1)
+	rt.setupWebhookRoutes(v1)
 	// rt.setupRecordingRoutes(v1)
 	// rt.setupReportRoutes(v1)
 }
@@ -123,6 +126,18 @@ func (rt *Router) setupRoomRoutes(g *echo.Group) {
 		roomGroup.GET("/:id/participants", rt.notImplemented)
 		roomGroup.DELETE("/:id/participants/:pid", rt.notImplemented)
 		roomGroup.POST("/:id/transfer-host", rt.notImplemented)
+	}
+}
+
+// setupWebhookRoutes configures webhook routes (no auth required for LiveKit webhooks)
+func (rt *Router) setupWebhookRoutes(g *echo.Group) {
+	webhookGroup := g.Group("/webhooks")
+
+	if rt.webhookHandler != nil {
+		// LiveKit webhook endpoint (public - LiveKit will call this)
+		webhookGroup.POST("/livekit", rt.webhookHandler.HandleLiveKitWebhook)
+	} else {
+		webhookGroup.POST("/livekit", rt.notImplemented)
 	}
 }
 

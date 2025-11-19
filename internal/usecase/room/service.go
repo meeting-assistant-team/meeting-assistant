@@ -11,7 +11,7 @@ import (
 // Service defines the interface for room use case
 type Service interface {
 	// CreateRoom creates a new room
-	CreateRoom(ctx context.Context, input CreateRoomInput) (*entities.Room, error)
+	CreateRoom(ctx context.Context, input CreateRoomInput) (*CreateRoomOutput, error)
 
 	// GetRoom retrieves a room by ID
 	GetRoom(ctx context.Context, roomID uuid.UUID) (*entities.Room, error)
@@ -39,6 +39,18 @@ type Service interface {
 
 	// TransferHost transfers host role to another participant
 	TransferHost(ctx context.Context, roomID, currentHostID, newHostID uuid.UUID) error
+
+	// GenerateParticipantToken generates a LiveKit access token for a participant
+	GenerateParticipantToken(ctx context.Context, room *entities.Room, participant *entities.Participant) (string, error)
+
+	// GetLivekitURL returns the LiveKit server URL
+	GetLivekitURL() string
+
+	// GetRoomByLivekitName retrieves a room by LiveKit room name (for webhooks)
+	GetRoomByLivekitName(ctx context.Context, livekitName string) (*entities.Room, error)
+
+	// UpdateParticipantStatus updates participant status (for webhooks)
+	UpdateParticipantStatus(ctx context.Context, roomID, userID uuid.UUID, status string) error
 }
 
 // Ensure RoomService implements Service interface

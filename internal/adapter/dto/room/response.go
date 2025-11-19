@@ -25,8 +25,17 @@ type RoomResponse struct {
 	StartedAt           *time.Time             `json:"started_at,omitempty"`
 	EndedAt             *time.Time             `json:"ended_at,omitempty"`
 	Duration            *int                   `json:"duration,omitempty"`
+	JoinURL             string                 `json:"join_url,omitempty"` // Meeting URL để share
 	CreatedAt           time.Time              `json:"created_at"`
 	UpdatedAt           time.Time              `json:"updated_at"`
+}
+
+// CreateRoomResponse represents the response after creating a room
+type CreateRoomResponse struct {
+	Room         *RoomResponse `json:"room"`
+	LivekitToken string        `json:"livekit_token"`
+	LivekitURL   string        `json:"livekit_url"`
+	JoinURL      string        `json:"join_url"` // URL để share cho users khác
 }
 
 // ParticipantResponse represents a participant in responses
@@ -54,6 +63,7 @@ type JoinRoomResponse struct {
 	Room         *RoomResponse          `json:"room"`
 	LivekitToken string                 `json:"livekit_token"`
 	LivekitURL   string                 `json:"livekit_url"`
+	JoinURL      string                 `json:"join_url"` // URL để share cho users khác
 	Participants []*ParticipantResponse `json:"participants"`
 	Participant  *ParticipantResponse   `json:"participant"`
 }

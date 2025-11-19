@@ -40,6 +40,10 @@ var (
 	ErrParticipantNotFound  = errors.New("participant not found")
 	ErrCannotRemoveSelf     = errors.New("cannot remove yourself")
 	ErrCannotTransferToSelf = errors.New("cannot transfer host to yourself")
+	ErrNotInvited           = errors.New("user not invited to this room")
+	ErrAccessDenied         = errors.New("access denied to this room")
+	ErrTooEarly             = errors.New("cannot join room before scheduled time")
+	ErrAlreadyInvited       = errors.New("user already invited or in room")
 )
 
 // Recording errors

@@ -1,5 +1,29 @@
 basePath: /v1
 definitions:
+  github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.AuthResponse:
+    properties:
+      access_token:
+        type: string
+      expires_in:
+        description: seconds
+        type: integer
+      refresh_token:
+        type: string
+      token_type:
+        description: '"Bearer"'
+        type: string
+      user:
+        $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.UserResponse'
+    type: object
+  github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.RefreshTokenResponse:
+    properties:
+      access_token:
+        type: string
+      expires_in:
+        type: integer
+      token_type:
+        type: string
+    type: object
   github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.UserResponse:
     properties:
       avatar_url:
@@ -59,6 +83,9 @@ definitions:
     type: object
   github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.JoinRoomResponse:
     properties:
+      join_url:
+        description: URL để share cho users khác
+        type: string
       livekit_token:
         type: string
       livekit_url:
@@ -158,6 +185,9 @@ definitions:
         type: string
       id:
         type: string
+      join_url:
+        description: Meeting URL để share
+        type: string
       livekit_room_name:
         type: string
       max_participants:
@@ -188,75 +218,6 @@ definitions:
         type: string
     required:
     - new_host_id
-    type: object
-  github_com_johnquangdev_meeting-assistant_internal_domain_entities.User:
-    properties:
-      avatar_url:
-        description: Profile
-        type: string
-      bio:
-        type: string
-      created_at:
-        description: Timestamps
-        type: string
-      email:
-        type: string
-      id:
-        type: string
-      is_active:
-        type: boolean
-      is_email_verified:
-        description: Status
-        type: boolean
-      language:
-        type: string
-      last_active_at:
-        type: string
-      last_login_at:
-        type: string
-      meeting_preferences:
-        items:
-          type: integer
-        type: array
-      name:
-        type: string
-      notification_preferences:
-        description: Preferences (stored as JSONB in PostgreSQL)
-        items:
-          type: integer
-        type: array
-      oauth_id:
-        type: string
-      oauth_provider:
-        description: OAuth fields
-        type: string
-      role:
-        $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_domain_entities.UserRole'
-      timezone:
-        type: string
-      updated_at:
-        type: string
-    type: object
-  github_com_johnquangdev_meeting-assistant_internal_domain_entities.UserRole:
-    enum:
-    - admin
-    - host
-    - participant
-    type: string
-    x-enum-varnames:
-    - RoleAdmin
-    - RoleHost
-    - RoleParticipant
-  github_com_johnquangdev_meeting-assistant_internal_usecase_auth.AuthResponse:
-    properties:
-      access_token:
-        type: string
-      expires_in:
-        type: integer
-      refresh_token:
-        type: string
-      user:
-        $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_domain_entities.User'
     type: object
 host: api-meeting.infoquang.id.vn
 info:
@@ -295,7 +256,7 @@ paths:
         "200":
           description: Authentication successful
           schema:
-            $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_usecase_auth.AuthResponse'
+            $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.AuthResponse'
         "400":
           description: Missing code or state
           schema:
@@ -311,7 +272,11 @@ paths:
       - Authentication
   /auth/google/login:
     get:
-      description: Redirects user to Google OAuth consent screen
+      description: Redirects user to Google OAuth consent screen. **Flow cho FE:**
+        1. Gọi endpoint này từ browser (`window.location.href = 'https://api-meeting.infoquang.id.vn/v1/auth/google/login'`).
+        2. User được redirect đến Google để đăng nhập. 3. Sau khi đăng nhập thành
+        công, Google redirect về `/auth/google/callback`. 4. Backend xử lý và redirect
+        về FRONTEND_URL với tokens trong query params.
       produces:
       - application/json
       responses:
@@ -331,7 +296,10 @@ paths:
     post:
       consumes:
       - application/json
-      description: Invalidates the refresh token and logs out the user
+      description: 'Invalidates the refresh token and logs out the user. **Request
+        body:** `{"refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."}` **Sau
+        khi logout thành công, FE cần:** Xóa access_token và refresh_token khỏi localStorage/sessionStorage,
+        sau đó redirect user về trang login.'
       parameters:
       - description: Refresh token to invalidate
         in: body
@@ -366,15 +334,16 @@ paths:
       - Authentication
   /auth/me:
     get:
-      description: Returns the authenticated user's information
+      description: 'Returns the authenticated user''s information. **Yêu cầu:** Header
+        `Authorization: Bearer <access_token>`. Không có tham số query/body. **Ví
+        dụ:** `curl -H "Authorization: Bearer <token>" https://api-meeting.infoquang.id.vn/v1/auth/me`'
       produces:
       - application/json
       responses:
         "200":
           description: User information
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.UserResponse'
         "401":
           description: Missing or invalid token
           schema:
@@ -389,7 +358,9 @@ paths:
     post:
       consumes:
       - application/json
-      description: Gets a new access token using a refresh token
+      description: 'Gets a new access token using a refresh token. **Khi nào dùng:**
+        Khi access_token hết hạn (401 Unauthorized) hoặc trước khi hết hạn để tránh
+        gián đoạn UX. **Request body:** `{"refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."}`'
       parameters:
       - description: Refresh token
         in: body
@@ -406,7 +377,7 @@ paths:
         "200":
           description: Token refreshed successfully
           schema:
-            $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_usecase_auth.AuthResponse'
+            $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.RefreshTokenResponse'
         "400":
           description: Invalid request or missing token
           schema:
@@ -804,6 +775,27 @@ paths:
       summary: Transfer host role
       tags:
       - Participants
+  /webhooks/livekit:
+    post:
+      consumes:
+      - application/json
+      description: Receives webhook events from LiveKit server
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+      summary: LiveKit Webhook
+      tags:
+      - Webhooks
 securityDefinitions:
   BearerAuth:
     description: Type "Bearer" followed by a space and JWT token.
