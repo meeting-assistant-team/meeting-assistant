@@ -100,7 +100,6 @@ func Load() (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to load config: %w", err)
 	}
-
 	return config, nil
 }
 
