@@ -83,6 +83,9 @@ definitions:
     type: object
   github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.JoinRoomResponse:
     properties:
+      join_url:
+        description: URL để share cho users khác
+        type: string
       livekit_token:
         type: string
       livekit_url:
@@ -181,6 +184,9 @@ definitions:
       host_id:
         type: string
       id:
+        type: string
+      join_url:
+        description: Meeting URL để share
         type: string
       livekit_room_name:
         type: string
@@ -769,6 +775,27 @@ paths:
       summary: Transfer host role
       tags:
       - Participants
+  /webhooks/livekit:
+    post:
+      consumes:
+      - application/json
+      description: Receives webhook events from LiveKit server
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+      summary: LiveKit Webhook
+      tags:
+      - Webhooks
 securityDefinitions:
   BearerAuth:
     description: Type "Bearer" followed by a space and JWT token.

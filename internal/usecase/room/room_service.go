@@ -11,6 +11,7 @@ import (
 
 	"github.com/johnquangdev/meeting-assistant/internal/domain/entities"
 	"github.com/johnquangdev/meeting-assistant/internal/domain/repositories"
+	"github.com/johnquangdev/meeting-assistant/internal/infrastructure/external/livekit"
 	usecaseErrors "github.com/johnquangdev/meeting-assistant/internal/usecase/errors"
 )
 
@@ -18,16 +19,22 @@ import (
 type RoomService struct {
 	roomRepo        repositories.RoomRepository
 	participantRepo repositories.ParticipantRepository
+	livekitClient   livekit.Client
+	livekitURL      string
 }
 
 // NewRoomService creates a new room service
 func NewRoomService(
 	roomRepo repositories.RoomRepository,
 	participantRepo repositories.ParticipantRepository,
+	livekitClient livekit.Client,
+	livekitURL string,
 ) *RoomService {
 	return &RoomService{
 		roomRepo:        roomRepo,
 		participantRepo: participantRepo,
+		livekitClient:   livekitClient,
+		livekitURL:      livekitURL,
 	}
 }
 
@@ -43,8 +50,16 @@ type CreateRoomInput struct {
 	ScheduledEndTime   *time.Time
 }
 
+// CreateRoomOutput represents the output of creating a room
+type CreateRoomOutput struct {
+	Room          *entities.Room
+	LivekitToken  string
+	LivekitURL    string
+	LivekitRoomID string
+}
+
 // CreateRoom creates a new room
-func (s *RoomService) CreateRoom(ctx context.Context, input CreateRoomInput) (*entities.Room, error) {
+func (s *RoomService) CreateRoom(ctx context.Context, input CreateRoomInput) (*CreateRoomOutput, error) {
 	// Validate input
 	if input.MaxParticipants < 2 || input.MaxParticipants > 100 {
 		return nil, usecaseErrors.ErrInvalidMaxParticipants
@@ -52,6 +67,16 @@ func (s *RoomService) CreateRoom(ctx context.Context, input CreateRoomInput) (*e
 
 	// Generate LiveKit room name
 	livekitRoomName := fmt.Sprintf("room-%s", uuid.New().String())
+
+	// Create room in LiveKit
+	roomInfo, err := s.livekitClient.CreateRoom(ctx, livekitRoomName, &livekit.CreateRoomOptions{
+		MaxParticipants: int32(input.MaxParticipants),
+		EmptyTimeout:    300, // 5 minutes
+		Metadata:        fmt.Sprintf(`{"name":"%s"}`, input.Name),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create livekit room: %w", err)
+	}
 
 	// Create room entity
 	room := &entities.Room{
@@ -61,6 +86,7 @@ func (s *RoomService) CreateRoom(ctx context.Context, input CreateRoomInput) (*e
 		Type:                input.Type,
 		Status:              entities.RoomStatusScheduled,
 		LivekitRoomName:     livekitRoomName,
+		LivekitRoomID:       &roomInfo.SID,
 		MaxParticipants:     input.MaxParticipants,
 		CurrentParticipants: 0,
 		ScheduledStartTime:  input.ScheduledStartTime,
@@ -75,6 +101,8 @@ func (s *RoomService) CreateRoom(ctx context.Context, input CreateRoomInput) (*e
 
 	// Create room in database
 	if err := s.roomRepo.Create(ctx, room); err != nil {
+		// Cleanup: delete LiveKit room if DB insert fails
+		_ = s.livekitClient.DeleteRoom(ctx, livekitRoomName)
 		return nil, fmt.Errorf("failed to create room: %w", err)
 	}
 
@@ -92,10 +120,36 @@ func (s *RoomService) CreateRoom(ctx context.Context, input CreateRoomInput) (*e
 	}
 
 	if err := s.participantRepo.Create(ctx, participant); err != nil {
+		// Cleanup: delete room and LiveKit room
+		_ = s.roomRepo.Delete(ctx, room.ID)
+		_ = s.livekitClient.DeleteRoom(ctx, livekitRoomName)
 		return nil, fmt.Errorf("failed to add host as participant: %w", err)
 	}
 
-	return room, nil
+	// Generate LiveKit access token for host
+	token, err := s.livekitClient.GenerateToken(
+		input.HostID.String(),
+		livekitRoomName,
+		"Host", // participant name
+		&livekit.TokenOptions{
+			ValidFor:       24 * time.Hour,
+			CanPublish:     true,
+			CanSubscribe:   true,
+			CanPublishData: true,
+			RoomJoin:       true,
+			RoomAdmin:      true, // Host has admin rights
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate livekit token: %w", err)
+	}
+
+	return &CreateRoomOutput{
+		Room:          room,
+		LivekitToken:  token,
+		LivekitURL:    s.livekitURL,
+		LivekitRoomID: roomInfo.SID,
+	}, nil
 }
 
 // GetRoom retrieves a room by ID
@@ -166,9 +220,19 @@ func (s *RoomService) JoinRoom(ctx context.Context, input JoinRoomInput) (*entit
 		return nil, nil, fmt.Errorf("failed to get room: %w", err)
 	}
 
-	// Check if room has ended
+	// DEBUG: Log room status when joining
+	fmt.Printf("🔍 [JOIN_ROOM] User %s attempting to join room %s (status: %s)\n",
+		input.UserID, input.RoomID, room.Status)
+
+	// Check if room has ended (IMPORTANT: Check this BEFORE authorization)
 	if room.IsEnded() {
+		fmt.Printf("❌ [JOIN_ROOM] Room %s has ended, rejecting join attempt\n", input.RoomID)
 		return nil, nil, usecaseErrors.ErrRoomEnded
+	}
+
+	// Check authorization based on room type
+	if err := s.checkJoinAuthorization(ctx, room, input.UserID); err != nil {
+		return nil, nil, err
 	}
 
 	// Check if room is full
@@ -193,10 +257,16 @@ func (s *RoomService) JoinRoom(ctx context.Context, input JoinRoomInput) (*entit
 
 	if participant == nil {
 		// Create new participant
+		// Determine role: host if creating user is room host, otherwise participant
+		participantRole := entities.ParticipantRoleParticipant
+		if room.HostID == input.UserID {
+			participantRole = entities.ParticipantRoleHost
+		}
+
 		participant = &entities.Participant{
 			RoomID:         input.RoomID,
 			UserID:         input.UserID,
-			Role:           entities.ParticipantRoleParticipant,
+			Role:           participantRole,
 			CanShareScreen: true,
 		}
 		if err := s.participantRepo.Create(ctx, participant); err != nil {
@@ -224,6 +294,72 @@ func (s *RoomService) JoinRoom(ctx context.Context, input JoinRoomInput) (*entit
 	}
 
 	return room, participant, nil
+}
+
+// checkJoinAuthorization checks if a user is authorized to join a room
+func (s *RoomService) checkJoinAuthorization(ctx context.Context, room *entities.Room, userID uuid.UUID) error {
+	// Host can always join their own room
+	if room.HostID == userID {
+		return nil
+	}
+
+	switch room.Type {
+	case entities.RoomTypePublic:
+		// Anyone can join public rooms
+		return nil
+
+	case entities.RoomTypePrivate:
+		// Must be invited to join private rooms
+		participant, err := s.participantRepo.FindByRoomAndUser(ctx, room.ID, userID)
+		if err != nil || participant == nil {
+			return usecaseErrors.ErrNotInvited
+		}
+
+		// Check if invited (not yet joined or left)
+		if participant.Status != entities.ParticipantStatusInvited {
+			// If already joined, return specific error
+			if participant.Status == entities.ParticipantStatusJoined {
+				return usecaseErrors.ErrAlreadyInRoom
+			}
+			// If declined or removed, deny access
+			if participant.Status == entities.ParticipantStatusDeclined ||
+				participant.Status == entities.ParticipantStatusRemoved {
+				return usecaseErrors.ErrAccessDenied
+			}
+			return usecaseErrors.ErrNotInvited
+		}
+
+		return nil
+
+	case entities.RoomTypeScheduled:
+		// Must be invited to join scheduled rooms
+		participant, err := s.participantRepo.FindByRoomAndUser(ctx, room.ID, userID)
+		if err != nil || participant == nil {
+			return usecaseErrors.ErrNotInvited
+		}
+
+		// Check if invited
+		if participant.Status != entities.ParticipantStatusInvited {
+			if participant.Status == entities.ParticipantStatusJoined {
+				return usecaseErrors.ErrAlreadyInRoom
+			}
+			return usecaseErrors.ErrNotInvited
+		}
+
+		// Check time window (allow join 15 mins before scheduled time)
+		if room.ScheduledStartTime != nil {
+			now := time.Now()
+			allowedTime := room.ScheduledStartTime.Add(-15 * time.Minute)
+			if now.Before(allowedTime) {
+				return usecaseErrors.ErrTooEarly
+			}
+		}
+
+		return nil
+
+	default:
+		return fmt.Errorf("unknown room type: %s", room.Type)
+	}
 }
 
 // LeaveRoom allows a user to leave a room
@@ -426,6 +562,83 @@ func (s *RoomService) promoteNewHost(ctx context.Context, roomID uuid.UUID) erro
 	room.HostID = newHost.UserID
 	if err := s.roomRepo.Update(ctx, room); err != nil {
 		return fmt.Errorf("failed to update room: %w", err)
+	}
+
+	return nil
+}
+
+// GenerateParticipantToken generates a LiveKit access token for a participant
+func (s *RoomService) GenerateParticipantToken(ctx context.Context, room *entities.Room, participant *entities.Participant) (string, error) {
+	// Determine participant name and admin rights
+	participantName := "Participant"
+	isAdmin := participant.IsHost()
+
+	if participant.IsHost() {
+		participantName = "Host"
+	}
+
+	// Generate token
+	token, err := s.livekitClient.GenerateToken(
+		participant.UserID.String(),
+		room.LivekitRoomName,
+		participantName,
+		&livekit.TokenOptions{
+			ValidFor:       24 * time.Hour,
+			CanPublish:     true,
+			CanSubscribe:   true,
+			CanPublishData: true,
+			RoomJoin:       true,
+			RoomAdmin:      isAdmin,
+		},
+	)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate participant token: %w", err)
+	}
+
+	return token, nil
+}
+
+// GetLivekitURL returns the LiveKit server URL
+func (s *RoomService) GetLivekitURL() string {
+	return s.livekitURL
+}
+
+// GetRoomByLivekitName retrieves a room by its LiveKit room name
+func (s *RoomService) GetRoomByLivekitName(ctx context.Context, livekitName string) (*entities.Room, error) {
+	room, err := s.roomRepo.FindByLivekitName(ctx, livekitName)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, usecaseErrors.ErrRoomNotFound
+		}
+		return nil, fmt.Errorf("failed to get room by livekit name: %w", err)
+	}
+	return room, nil
+}
+
+// UpdateParticipantStatus updates participant status (used by webhooks)
+func (s *RoomService) UpdateParticipantStatus(ctx context.Context, roomID, userID uuid.UUID, status string) error {
+	participant, err := s.participantRepo.FindByRoomAndUser(ctx, roomID, userID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return usecaseErrors.ErrNotParticipant
+		}
+		return fmt.Errorf("failed to get participant: %w", err)
+	}
+
+	// Update status based on string value
+	switch status {
+	case "joined":
+		if participant.Status != entities.ParticipantStatusJoined {
+			participant.Join()
+			if err := s.participantRepo.Update(ctx, participant); err != nil {
+				return fmt.Errorf("failed to update participant status: %w", err)
+			}
+		}
+	case "left":
+		participant.Leave()
+		if err := s.participantRepo.Update(ctx, participant); err != nil {
+			return fmt.Errorf("failed to update participant status: %w", err)
+		}
 	}
 
 	return nil

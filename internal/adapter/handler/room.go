@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/google/uuid"
@@ -10,6 +11,7 @@ import (
 	"github.com/johnquangdev/meeting-assistant/internal/adapter/presenter"
 	"github.com/johnquangdev/meeting-assistant/internal/domain/entities"
 	"github.com/johnquangdev/meeting-assistant/internal/domain/repositories"
+	usecaseErrors "github.com/johnquangdev/meeting-assistant/internal/usecase/errors"
 	roomUsecase "github.com/johnquangdev/meeting-assistant/internal/usecase/room"
 )
 
@@ -92,7 +94,7 @@ func (h *Room) CreateRoom(c echo.Context) error {
 		ScheduledEndTime:   req.ScheduledEndTime,
 	}
 
-	createdRoom, err := h.roomService.CreateRoom(c.Request().Context(), input)
+	output, err := h.roomService.CreateRoom(c.Request().Context(), input)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]interface{}{
 			"error":   "failed_to_create_room",
@@ -100,7 +102,14 @@ func (h *Room) CreateRoom(c echo.Context) error {
 		})
 	}
 
-	return c.JSON(http.StatusCreated, presenter.ToRoomResponse(createdRoom))
+	response := &room.CreateRoomResponse{
+		Room:         presenter.ToRoomResponse(output.Room),
+		LivekitToken: output.LivekitToken,
+		LivekitURL:   output.LivekitURL,
+		JoinURL:      presenter.GenerateJoinURL(output.Room.ID.String()),
+	}
+
+	return c.JSON(http.StatusCreated, response)
 }
 
 // GetRoom handles GET /rooms/:id
@@ -222,14 +231,35 @@ func (h *Room) JoinRoom(c echo.Context) error {
 	r, participant, err := h.roomService.JoinRoom(c.Request().Context(), input)
 	if err != nil {
 		statusCode := http.StatusInternalServerError
-		if err.Error() == "room is full" {
+		errorCode := "failed_to_join_room"
+
+		// Map specific errors to HTTP status codes
+		switch {
+		case errors.Is(err, usecaseErrors.ErrRoomFull):
 			statusCode = http.StatusBadRequest
-		} else if err.Error() == "user already in room" {
+			errorCode = "room_full"
+		case errors.Is(err, usecaseErrors.ErrAlreadyInRoom):
 			statusCode = http.StatusConflict
+			errorCode = "already_in_room"
+		case errors.Is(err, usecaseErrors.ErrNotInvited):
+			statusCode = http.StatusForbidden
+			errorCode = "not_invited"
+		case errors.Is(err, usecaseErrors.ErrAccessDenied):
+			statusCode = http.StatusForbidden
+			errorCode = "access_denied"
+		case errors.Is(err, usecaseErrors.ErrTooEarly):
+			statusCode = http.StatusBadRequest
+			errorCode = "too_early"
+		case errors.Is(err, usecaseErrors.ErrRoomEnded):
+			statusCode = http.StatusBadRequest
+			errorCode = "room_ended"
+		case errors.Is(err, usecaseErrors.ErrRoomNotFound):
+			statusCode = http.StatusNotFound
+			errorCode = "room_not_found"
 		}
 
 		return c.JSON(statusCode, map[string]interface{}{
-			"error":   "failed_to_join_room",
+			"error":   errorCode,
 			"message": err.Error(),
 		})
 	}
@@ -237,14 +267,20 @@ func (h *Room) JoinRoom(c echo.Context) error {
 	// Get all participants
 	participants, _ := h.roomService.GetParticipants(c.Request().Context(), roomID)
 
-	// TODO: Generate LiveKit token
-	livekitToken := "dummy-livekit-token"
-	livekitURL := "wss://livekit-server.com"
+	// Generate LiveKit token for the participant
+	livekitToken, err := h.roomService.GenerateParticipantToken(c.Request().Context(), r, participant)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]interface{}{
+			"error":   "failed_to_generate_token",
+			"message": err.Error(),
+		})
+	}
 
 	response := &room.JoinRoomResponse{
 		Room:         presenter.ToRoomResponse(r),
 		LivekitToken: livekitToken,
-		LivekitURL:   livekitURL,
+		LivekitURL:   h.roomService.GetLivekitURL(),
+		JoinURL:      presenter.GenerateJoinURL(r.ID.String()),
 		Participants: presenter.ToParticipantListResponse(participants).Participants,
 		Participant:  presenter.ToParticipantResponse(participant),
 	}

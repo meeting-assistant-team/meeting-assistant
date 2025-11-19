@@ -17,6 +17,7 @@ type Config struct {
 	OAuth    OAuthConfig
 	JWT      JWTConfig
 	Storage  StorageConfig
+	LiveKit  LiveKitConfig
 }
 
 // ServerConfig holds server configuration
@@ -76,6 +77,15 @@ type StorageConfig struct {
 	SecretAccessKey string `envconfig:"MINIO_SECRET_KEY"`
 	BucketName      string `envconfig:"MINIO_BUCKET_NAME"`
 	UseSSL          bool   `envconfig:"MINIO_USE_SSL"`
+}
+
+// LiveKitConfig holds LiveKit configuration
+type LiveKitConfig struct {
+	URL           string `envconfig:"LIVEKIT_URL" default:"ws://localhost:7880"`
+	APIKey        string `envconfig:"LIVEKIT_API_KEY" default:"devkey"`
+	APISecret     string `envconfig:"LIVEKIT_API_SECRET" default:"secret"`
+	WebhookSecret string `envconfig:"LIVEKIT_WEBHOOK_SECRET"`           // Secret for validating webhooks from LiveKit
+	UseMock       bool   `envconfig:"LIVEKIT_USE_MOCK" default:"false"` // Use mock mode for testing without real LiveKit server
 }
 
 // Load loads configuration from environment variables

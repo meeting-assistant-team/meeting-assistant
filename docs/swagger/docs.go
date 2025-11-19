@@ -827,6 +827,37 @@ const docTemplate = `{
                     }
                 }
             }
+        },
+        "/webhooks/livekit": {
+            "post": {
+                "description": "Receives webhook events from LiveKit server",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Webhooks"
+                ],
+                "summary": "LiveKit Webhook",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
         }
     },
     "definitions": {
@@ -950,6 +981,10 @@ const docTemplate = `{
         "github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.JoinRoomResponse": {
             "type": "object",
             "properties": {
+                "join_url": {
+                    "description": "URL để share cho users khác",
+                    "type": "string"
+                },
                 "livekit_token": {
                     "type": "string"
                 },
@@ -1098,6 +1133,10 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "id": {
+                    "type": "string"
+                },
+                "join_url": {
+                    "description": "Meeting URL để share",
                     "type": "string"
                 },
                 "livekit_room_name": {
