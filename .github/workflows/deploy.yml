@@ -78,61 +78,92 @@ jobs:
             echo "Current commit:"
             git log -1 --oneline
 
-            # 3. Tạo lại file .env (ghi đè mỗi lần deploy để đảm bảo đồng bộ secrets)
-            echo "Recreating .env file..."
-            cat > .env << EOF
-            # Server Configuration
-            APP_ENV=production
-            APP_PORT=8080
-            APP_HOST=0.0.0.0
+            # 3. Export environment variables từ GitHub Secrets
+            echo "Setting up environment variables..."
+            export ENVIRONMENT=production
+            export PORT=8080
+            export ALLOWED_ORIGINS="${{ secrets.ALLOWED_ORIGINS }}"
+            export SHUTDOWN_TIMEOUT=10
+            
+            # Database
+            export DB_USER=postgres
+            export DB_PASSWORD="${{ secrets.DB_PASSWORD }}"
+            export DB_NAME=meeting_assistant
+            export DB_SSLMODE=disable
+            export DB_MAX_OPEN_CONNS=25
+            export DB_MAX_IDLE_CONNS=5
+            export DB_CONN_MAX_LIFETIME=5m
+            
+            # Redis
+            export REDIS_PASSWORD="${{ secrets.REDIS_PASSWORD }}"
+            export REDIS_DB=0
+            
+            # JWT
+            export JWT_ACCESS_TOKEN_SECRET="${{ secrets.JWT_ACCESS_TOKEN_SECRET }}"
+            export JWT_REFRESH_TOKEN_SECRET="${{ secrets.JWT_REFRESH_TOKEN_SECRET }}"
+            export JWT_ACCESS_TOKEN_EXPIRE=1h
+            export JWT_REFRESH_TOKEN_EXPIRE=720h
+            
+            # Google OAuth
+            export GOOGLE_CLIENT_ID="${{ secrets.GOOGLE_CLIENT_ID }}"
+            export GOOGLE_CLIENT_SECRET="${{ secrets.GOOGLE_CLIENT_SECRET }}"
+            export GOOGLE_REDIRECT_URL="${{ secrets.GOOGLE_REDIRECT_URL }}"
+            
+            # LiveKit
+            export LIVEKIT_API_KEY="${{ secrets.LIVEKIT_API_KEY }}"
+            export LIVEKIT_API_SECRET="${{ secrets.LIVEKIT_API_SECRET }}"
+            export LIVEKIT_URL="${{ secrets.LIVEKIT_URL }}"
+            
+            # MinIO
+            export MINIO_ENDPOINT="${{ secrets.MINIO_ENDPOINT }}"
+            export MINIO_ACCESS_KEY="${{ secrets.MINIO_ACCESS_KEY }}"
+            export MINIO_SECRET_KEY="${{ secrets.MINIO_SECRET_KEY }}"
+            export MINIO_USE_SSL=false
+            export MINIO_BUCKET_NAME=meeting-recordings
+            
+            # OpenAI
+            export OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}"
+            
+            # Frontend
+            export FRONTEND_URL="${{ secrets.FRONTEND_URL }}"
+            
+            # Logging
+            export LOG_LEVEL=info
+            export LOG_FORMAT=json
+            export RATE_LIMIT_REQUESTS=100
+            export RATE_LIMIT_WINDOW=1m
 
-            # Database Configuration
-            DB_HOST=postgres
-            DB_PORT=5432
-            DB_USER=postgres
-            DB_PASSWORD=${{ secrets.DB_PASSWORD }}
-            DB_NAME=meeting_assistant
-            DB_SSLMODE=disable
+            # 4. Xác định lệnh docker compose (hỗ trợ cả version cũ và mới)
+            if command -v docker-compose &> /dev/null; then
+              DOCKER_COMPOSE="docker-compose"
+              echo "✅ Using docker-compose (standalone)"
+            elif docker compose version &> /dev/null; then
+              DOCKER_COMPOSE="docker compose"
+              echo "✅ Using docker compose (plugin)"
+            else
+              echo "❌ Error: Neither docker-compose nor docker compose found!"
+              exit 1
+            fi
 
-            # Redis Configuration
-            REDIS_HOST=redis
-            REDIS_PORT=6379
-            REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
-            REDIS_DB=0
+            # 5. Dừng và xóa containers cũ
+            echo "🛑 Stopping and removing old containers..."
+            $DOCKER_COMPOSE -f docker-compose.prod.yml down
 
-            # JWT Configuration
-            JWT_SECRET=${{ secrets.JWT_SECRET }}
-            JWT_ACCESS_TOKEN_EXPIRE=15m
-            JWT_REFRESH_TOKEN_EXPIRE=7d
-
-            # Google OAuth Configuration
-            GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}
-            GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}
-            GOOGLE_REDIRECT_URL=${{ secrets.GOOGLE_REDIRECT_URL }}
-
-            # CORS Configuration
-            CORS_ALLOWED_ORIGINS=${{ secrets.CORS_ALLOWED_ORIGINS }}
-            EOF
-
-            # 4. Dừng và xóa containers cũ
-            echo "Stopping and removing old containers..."
-            docker-compose -f docker-compose.prod.yml down
-
-            # 5. Xóa image cũ của app để force rebuild
-            echo "Removing old app images..."
+            # 6. Xóa image cũ của app để force rebuild
+            echo "🗑️  Removing old app images..."
             docker rmi meeting-assistant-app-prod 2>/dev/null || true
             docker images | grep meeting-assistant | awk '{print $3}' | xargs docker rmi -f 2>/dev/null || true
 
-            # 6. Xây dựng lại image mới (không dùng cache)
-            echo "Building new images without cache..."
-            docker-compose -f docker-compose.prod.yml build --no-cache --pull app
+            # 7. Xây dựng lại image mới (không dùng cache)
+            echo "🔨 Building new images without cache..."
+            $DOCKER_COMPOSE -f docker-compose.prod.yml build --no-cache --pull app
 
-            # 7. Chạy containers mới
-            echo "Starting new containers..."
-            docker-compose -f docker-compose.prod.yml up -d --remove-orphans
+            # 8. Chạy containers mới
+            echo "🚀 Starting new containers..."
+            $DOCKER_COMPOSE -f docker-compose.prod.yml up -d --remove-orphans
 
-            # 8. Dọn dẹp images và containers không dùng
-            echo "Cleaning up unused images..."
+            # 9. Dọn dẹp images và containers không dùng
+            echo "🧹 Cleaning up unused images..."
             docker image prune -af
             docker container prune -f
 
@@ -143,10 +174,11 @@ jobs:
           username: ${{ secrets.SSH_USERNAME }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
-            echo "Waiting for services to start..."
+            echo "⏳ Waiting for services to start..."
             sleep 20
-            echo "Checking health endpoint..."
-            curl -f http://localhost:8080/health || (echo "Health check failed!" && exit 1)
+            echo "🏥 Checking health endpoint..."
+            curl -f http://localhost:8080/health || (echo "❌ Health check failed!" && exit 1)
+            echo "✅ Health check passed!"
 
       - name: Notify Deployment Status
         if: always()
