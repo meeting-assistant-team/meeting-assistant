@@ -27,6 +27,10 @@ const (
 	ParticipantStatusLeft     ParticipantStatus = "left"
 	ParticipantStatusRemoved  ParticipantStatus = "removed"
 	ParticipantStatusDeclined ParticipantStatus = "declined"
+<<<<<<< Updated upstream
+=======
+	ParticipantStatusWaiting  ParticipantStatus = "waiting"
+>>>>>>> Stashed changes
 	ParticipantStatusDenied   ParticipantStatus = "denied"
 )
 

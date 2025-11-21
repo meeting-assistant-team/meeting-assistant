@@ -204,7 +204,7 @@ func (h *Room) ListRooms(c echo.Context) error {
 // @Failure      401  {object}  map[string]interface{}  "User not authenticated"
 // @Failure      409  {object}  map[string]interface{}  "User already in room"
 // @Failure      500  {object}  map[string]interface{}  "Failed to join room"
-// @Router       /rooms/{id}/join [post]
+// @Router       /rooms/{id}/participants [post]
 func (h *Room) JoinRoom(c echo.Context) error {
 	roomID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -255,6 +255,13 @@ func (h *Room) JoinRoom(c echo.Context) error {
 		case errors.Is(err, usecaseErrors.ErrRoomNotFound):
 			statusCode = http.StatusNotFound
 			errorCode = "room_not_found"
+		case errors.Is(err, usecaseErrors.ErrWaitingForHostApproval):
+			statusCode = http.StatusAccepted
+			errorCode = "waiting_for_host_approval"
+			return c.JSON(statusCode, map[string]interface{}{
+				"error":   errorCode,
+				"message": "Your request to join the room is pending host approval.",
+			})
 		}
 
 		return c.JSON(statusCode, map[string]interface{}{
@@ -308,7 +315,7 @@ func (h *Room) JoinRoom(c echo.Context) error {
 // @Failure      400  {object}  map[string]interface{}  "Invalid room ID"
 // @Failure      401  {object}  map[string]interface{}  "User not authenticated"
 // @Failure      500  {object}  map[string]interface{}  "Failed to leave room"
-// @Router       /rooms/{id}/leave [post]
+// @Router       /rooms/{id}/participants/me [delete]
 func (h *Room) LeaveRoom(c echo.Context) error {
 	roomID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -350,7 +357,7 @@ func (h *Room) LeaveRoom(c echo.Context) error {
 // @Failure      401  {object}  map[string]interface{}  "User not authenticated"
 // @Failure      403  {object}  map[string]interface{}  "User is not the host"
 // @Failure      500  {object}  map[string]interface{}  "Failed to end room"
-// @Router       /rooms/{id}/end [post]
+// @Router       /rooms/{id} [patch]
 func (h *Room) EndRoom(c echo.Context) error {
 	roomID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -414,6 +421,174 @@ func (h *Room) GetParticipants(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, presenter.ToParticipantListResponse(participants))
+}
+
+// GetWaitingParticipants handles GET /rooms/:id/participants/waiting
+// @Summary      Get waiting participants
+// @Description  Retrieves all participants waiting for host approval (host only)
+// @Tags         Rooms
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id   path      string  true  "Room ID (UUID)"
+// @Success      200  {object}  room.ParticipantListResponse  "List of waiting participants"
+// @Failure      400  {object}  map[string]interface{}  "Invalid room ID"
+// @Failure      401  {object}  map[string]interface{}  "User not authenticated"
+// @Failure      403  {object}  map[string]interface{}  "User is not the host"
+// @Failure      500  {object}  map[string]interface{}  "Failed to get waiting participants"
+// @Router       /rooms/{id}/participants/waiting [get]
+func (h *Room) GetWaitingParticipants(c echo.Context) error {
+	roomID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]interface{}{
+			"error":   "invalid_room_id",
+			"message": "room ID must be a valid UUID",
+		})
+	}
+
+	userID, ok := c.Get("user_id").(uuid.UUID)
+	if !ok {
+		return c.JSON(http.StatusUnauthorized, map[string]interface{}{
+			"error":   "unauthorized",
+			"message": "user not authenticated",
+		})
+	}
+
+	participants, err := h.roomService.GetWaitingParticipants(c.Request().Context(), roomID, userID)
+	if err != nil {
+		statusCode := http.StatusInternalServerError
+		if errors.Is(err, usecaseErrors.ErrNotHost) {
+			statusCode = http.StatusForbidden
+		} else if errors.Is(err, usecaseErrors.ErrRoomNotFound) {
+			statusCode = http.StatusNotFound
+		}
+
+		return c.JSON(statusCode, map[string]interface{}{
+			"error":   "failed_to_get_waiting_participants",
+			"message": err.Error(),
+		})
+	}
+
+	return c.JSON(http.StatusOK, presenter.ToParticipantListResponse(participants))
+}
+
+// AdmitParticipant handles POST /rooms/:id/participants/:pid/admit
+// @Summary      Admit participant
+// @Description  Admits a waiting participant into the room (host only)
+// @Tags         Rooms
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id   path      string  true  "Room ID (UUID)"
+// @Param        pid  path      string  true  "Participant ID (UUID)"
+// @Success      200  {object}  map[string]interface{}  "Participant admitted successfully"
+// @Failure      400  {object}  map[string]interface{}  "Invalid room or participant ID"
+// @Failure      401  {object}  map[string]interface{}  "User not authenticated"
+// @Failure      403  {object}  map[string]interface{}  "User is not the host"
+// @Failure      500  {object}  map[string]interface{}  "Failed to admit participant"
+// @Router       /rooms/{id}/participants/{pid}/admit [post]
+func (h *Room) AdmitParticipant(c echo.Context) error {
+	roomID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]interface{}{
+			"error":   "invalid_room_id",
+			"message": "room ID must be a valid UUID",
+		})
+	}
+
+	participantID, err := uuid.Parse(c.Param("pid"))
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]interface{}{
+			"error":   "invalid_participant_id",
+			"message": "participant ID must be a valid UUID",
+		})
+	}
+
+	userID, ok := c.Get("user_id").(uuid.UUID)
+	if !ok {
+		return c.JSON(http.StatusUnauthorized, map[string]interface{}{
+			"error":   "unauthorized",
+			"message": "user not authenticated",
+		})
+	}
+
+	if err := h.roomService.AdmitParticipant(c.Request().Context(), roomID, userID, participantID); err != nil {
+		statusCode := http.StatusInternalServerError
+		if errors.Is(err, usecaseErrors.ErrNotHost) {
+			statusCode = http.StatusForbidden
+		} else if errors.Is(err, usecaseErrors.ErrRoomNotFound) || errors.Is(err, usecaseErrors.ErrParticipantNotFound) {
+			statusCode = http.StatusNotFound
+		} else if errors.Is(err, usecaseErrors.ErrInvalidParticipantStatus) {
+			statusCode = http.StatusBadRequest
+		}
+
+		return c.JSON(statusCode, map[string]interface{}{
+			"error":   "failed_to_admit_participant",
+			"message": err.Error(),
+		})
+	}
+
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"message": "participant admitted successfully",
+	})
+}
+
+// DenyParticipant handles POST /rooms/:id/participants/:pid/deny
+// @Summary      Deny participant
+// @Description  Denies a waiting participant from joining the room (host only)
+// @Tags         Rooms
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id   path      string  true  "Room ID (UUID)"
+// @Param        pid  path      string  true  "Participant ID (UUID)"
+// @Success      200  {object}  map[string]interface{}  "Participant denied successfully"
+// @Failure      400  {object}  map[string]interface{}  "Invalid room or participant ID"
+// @Failure      401  {object}  map[string]interface{}  "User not authenticated"
+// @Failure      403  {object}  map[string]interface{}  "User is not the host"
+// @Failure      500  {object}  map[string]interface{}  "Failed to deny participant"
+// @Router       /rooms/{id}/participants/{pid}/deny [post]
+func (h *Room) DenyParticipant(c echo.Context) error {
+	roomID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]interface{}{
+			"error":   "invalid_room_id",
+			"message": "room ID must be a valid UUID",
+		})
+	}
+
+	participantID, err := uuid.Parse(c.Param("pid"))
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]interface{}{
+			"error":   "invalid_participant_id",
+			"message": "participant ID must be a valid UUID",
+		})
+	}
+
+	userID, ok := c.Get("user_id").(uuid.UUID)
+	if !ok {
+		return c.JSON(http.StatusUnauthorized, map[string]interface{}{
+			"error":   "unauthorized",
+			"message": "user not authenticated",
+		})
+	}
+
+	if err := h.roomService.DenyParticipant(c.Request().Context(), roomID, userID, participantID); err != nil {
+		statusCode := http.StatusInternalServerError
+		if errors.Is(err, usecaseErrors.ErrNotHost) {
+			statusCode = http.StatusForbidden
+		} else if errors.Is(err, usecaseErrors.ErrRoomNotFound) || errors.Is(err, usecaseErrors.ErrParticipantNotFound) {
+			statusCode = http.StatusNotFound
+		} else if errors.Is(err, usecaseErrors.ErrInvalidParticipantStatus) {
+			statusCode = http.StatusBadRequest
+		}
+
+		return c.JSON(statusCode, map[string]interface{}{
+			"error":   "failed_to_deny_participant",
+			"message": err.Error(),
+		})
+	}
+
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"message": "participant denied successfully",
+	})
 }
 
 // RemoveParticipant handles DELETE /rooms/:id/participants/:pid
@@ -496,7 +671,7 @@ func (h *Room) RemoveParticipant(c echo.Context) error {
 // @Failure      401      {object}  map[string]interface{}  "User not authenticated"
 // @Failure      403      {object}  map[string]interface{}  "User is not the host"
 // @Failure      500      {object}  map[string]interface{}  "Failed to transfer host"
-// @Router       /rooms/{id}/transfer-host [post]
+// @Router       /rooms/{id}/host [patch]
 func (h *Room) TransferHost(c echo.Context) error {
 	roomID, err := uuid.Parse(c.Param("id"))
 	if err != nil {

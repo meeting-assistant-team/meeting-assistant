@@ -34,6 +34,7 @@ var (
 
 // Participant errors
 var (
+<<<<<<< Updated upstream
 	ErrNotHost              = errors.New("user is not the host")
 	ErrNotParticipant       = errors.New("user is not a participant")
 	ErrAlreadyInRoom        = errors.New("user already in room")
@@ -44,6 +45,20 @@ var (
 	ErrAccessDenied         = errors.New("access denied to this room")
 	ErrTooEarly             = errors.New("cannot join room before scheduled time")
 	ErrAlreadyInvited       = errors.New("user already invited or in room")
+=======
+	ErrNotHost                  = errors.New("user is not the host")
+	ErrNotParticipant           = errors.New("user is not a participant")
+	ErrAlreadyInRoom            = errors.New("user already in room")
+	ErrParticipantNotFound      = errors.New("participant not found")
+	ErrCannotRemoveSelf         = errors.New("cannot remove yourself")
+	ErrCannotTransferToSelf     = errors.New("cannot transfer host to yourself")
+	ErrNotInvited               = errors.New("user not invited to this room")
+	ErrAccessDenied             = errors.New("access denied to this room")
+	ErrTooEarly                 = errors.New("cannot join room before scheduled time")
+	ErrAlreadyInvited           = errors.New("user already invited or in room")
+	ErrInvalidParticipantStatus = errors.New("invalid participant status for this operation")
+	ErrWaitingForHostApproval   = errors.New("waiting for host approval")
+>>>>>>> Stashed changes
 )
 
 // Recording errors

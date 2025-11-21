@@ -34,6 +34,15 @@ type Service interface {
 	// GetParticipants retrieves all participants in a room
 	GetParticipants(ctx context.Context, roomID uuid.UUID) ([]*entities.Participant, error)
 
+	// GetWaitingParticipants retrieves all waiting participants in a room
+	GetWaitingParticipants(ctx context.Context, roomID, hostID uuid.UUID) ([]*entities.Participant, error)
+
+	// AdmitParticipant admits a waiting participant into the room
+	AdmitParticipant(ctx context.Context, roomID, hostID, participantID uuid.UUID) error
+
+	// DenyParticipant denies a waiting participant from joining the room
+	DenyParticipant(ctx context.Context, roomID, hostID, participantID uuid.UUID) error
+
 	// RemoveParticipant removes a participant from a room (host only)
 	RemoveParticipant(ctx context.Context, roomID, hostID, participantID uuid.UUID, reason string) error
 

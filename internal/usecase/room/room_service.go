@@ -256,24 +256,29 @@ func (s *RoomService) JoinRoom(ctx context.Context, input JoinRoomInput) (*entit
 	}
 
 	if participant == nil {
-		// Create new participant
-		// Determine role: host if creating user is room host, otherwise participant
 		participantRole := entities.ParticipantRoleParticipant
+<<<<<<< Updated upstream
 		isHost := room.HostID == input.UserID
 
 		if isHost {
+=======
+		participantStatus := entities.ParticipantStatusWaiting
+		if room.HostID == input.UserID {
+>>>>>>> Stashed changes
 			participantRole = entities.ParticipantRoleHost
+			participantStatus = entities.ParticipantStatusJoined
 		}
-
 		participant = &entities.Participant{
 			RoomID:         input.RoomID,
 			UserID:         input.UserID,
 			Role:           participantRole,
+			Status:         participantStatus,
 			CanShareScreen: true,
 		}
 		if err := s.participantRepo.Create(ctx, participant); err != nil {
 			return nil, nil, fmt.Errorf("failed to create participant: %w", err)
 		}
+<<<<<<< Updated upstream
 	}
 
 	// Check if user is host
@@ -305,7 +310,39 @@ func (s *RoomService) JoinRoom(ctx context.Context, input JoinRoomInput) (*entit
 		participant.InvitedAt = &now
 		if err := s.participantRepo.Update(ctx, participant); err != nil {
 			return nil, nil, fmt.Errorf("failed to update participant: %w", err)
+=======
+	} else {
+		// Nếu đã có participant, chỉ host mới được chuyển sang joined khi join lại
+		if room.HostID == input.UserID && participant.Status != entities.ParticipantStatusJoined {
+			participant.Status = entities.ParticipantStatusJoined
+			if err := s.participantRepo.Update(ctx, participant); err != nil {
+				return nil, nil, fmt.Errorf("failed to update participant: %w", err)
+			}
+>>>>>>> Stashed changes
 		}
+	}
+
+	// Nếu là host, cho join luôn
+	if room.HostID == input.UserID {
+		// Increment participant count nếu vừa tạo mới
+		if participant.Status == entities.ParticipantStatusJoined {
+			if err := s.roomRepo.IncrementParticipantCount(ctx, input.RoomID); err != nil {
+				return nil, nil, fmt.Errorf("failed to increment participant count: %w", err)
+			}
+		}
+		// Start room nếu chưa bắt đầu
+		if room.Status == entities.RoomStatusScheduled {
+			room.Start()
+			if err := s.roomRepo.Update(ctx, room); err != nil {
+				return nil, nil, fmt.Errorf("failed to start room: %w", err)
+			}
+		}
+		return room, participant, nil
+	}
+
+	// Nếu không phải host, set status waiting và trả về nil để handler biết trả về thông báo chờ duyệt
+	if participant.Status == entities.ParticipantStatusWaiting {
+		return room, participant, usecaseErrors.ErrWaitingForHostApproval
 	}
 
 	return room, participant, nil
@@ -465,6 +502,112 @@ func (s *RoomService) GetParticipants(ctx context.Context, roomID uuid.UUID) ([]
 		return nil, fmt.Errorf("failed to get participants: %w", err)
 	}
 	return participants, nil
+}
+
+// GetWaitingParticipants retrieves all waiting participants in a room
+func (s *RoomService) GetWaitingParticipants(ctx context.Context, roomID, hostID uuid.UUID) ([]*entities.Participant, error) {
+	// Verify room exists
+	room, err := s.roomRepo.FindByID(ctx, roomID)
+	if err != nil {
+		return nil, usecaseErrors.ErrRoomNotFound
+	}
+
+	// Check if room has ended
+	if room.IsEnded() {
+		return nil, usecaseErrors.ErrRoomEnded
+	}
+
+	// Verify user is the host
+	if room.HostID != hostID {
+		return nil, usecaseErrors.ErrNotHost
+	}
+
+	// Get waiting participants
+	participants, err := s.participantRepo.FindWaitingByRoomID(ctx, roomID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get waiting participants: %w", err)
+	}
+
+	return participants, nil
+}
+
+// AdmitParticipant admits a waiting participant into the room
+func (s *RoomService) AdmitParticipant(ctx context.Context, roomID, hostID, participantID uuid.UUID) error {
+	// Verify room exists
+	room, err := s.roomRepo.FindByID(ctx, roomID)
+	if err != nil {
+		return usecaseErrors.ErrRoomNotFound
+	}
+
+	// Check if room has ended
+	if room.IsEnded() {
+		return usecaseErrors.ErrRoomEnded
+	}
+
+	// Verify user is the host
+	if room.HostID != hostID {
+		return usecaseErrors.ErrNotHost
+	}
+
+	// Get participant
+	participant, err := s.participantRepo.FindByID(ctx, participantID)
+	if err != nil {
+		return usecaseErrors.ErrParticipantNotFound
+	}
+
+	// Verify participant is waiting
+	if participant.Status != entities.ParticipantStatusWaiting {
+		return usecaseErrors.ErrInvalidParticipantStatus
+	}
+
+	// Mark as joined
+	if err := s.participantRepo.MarkAsJoined(ctx, participantID); err != nil {
+		return fmt.Errorf("failed to admit participant: %w", err)
+	}
+
+	// Increment participant count
+	if err := s.roomRepo.IncrementParticipantCount(ctx, roomID); err != nil {
+		return fmt.Errorf("failed to increment participant count: %w", err)
+	}
+
+	return nil
+}
+
+// DenyParticipant denies a waiting participant from joining the room
+func (s *RoomService) DenyParticipant(ctx context.Context, roomID, hostID, participantID uuid.UUID) error {
+	// Verify room exists
+	room, err := s.roomRepo.FindByID(ctx, roomID)
+	if err != nil {
+		return usecaseErrors.ErrRoomNotFound
+	}
+
+	// Check if room has ended
+	if room.IsEnded() {
+		return usecaseErrors.ErrRoomEnded
+	}
+
+	// Verify user is the host
+	if room.HostID != hostID {
+		return usecaseErrors.ErrNotHost
+	}
+
+	// Get participant
+	participant, err := s.participantRepo.FindByID(ctx, participantID)
+	if err != nil {
+		return usecaseErrors.ErrParticipantNotFound
+	}
+
+	// Verify participant is waiting
+	if participant.Status != entities.ParticipantStatusWaiting {
+		return usecaseErrors.ErrInvalidParticipantStatus
+	}
+
+	// Update status to denied
+	if err := s.participantRepo.UpdateStatus(ctx, participantID, entities.ParticipantStatusDenied); err != nil {
+		return fmt.Errorf("failed to deny participant: %w", err)
+	}
+
+	return nil
 }
 
 // RemoveParticipant removes a participant from a room (host only)
