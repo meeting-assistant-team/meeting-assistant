@@ -107,17 +107,6 @@ func (rt *Router) setupRoomRoutes(g *echo.Group) {
 		roomGroup.GET("/:id", rt.roomHandler.GetRoom)   // Get room details
 		roomGroup.PATCH("/:id", rt.roomHandler.EndRoom) // End room (update status to ended)
 
-<<<<<<< Updated upstream
-		// Room actions
-		roomGroup.POST("/:id/join", rt.roomHandler.JoinRoom)   // Join room
-		roomGroup.POST("/:id/leave", rt.roomHandler.LeaveRoom) // Leave room
-		roomGroup.POST("/:id/end", rt.roomHandler.EndRoom)     // End room
-
-		// Participant management
-		roomGroup.GET("/:id/participants", rt.roomHandler.GetParticipants)           // List participants
-		roomGroup.DELETE("/:id/participants/:pid", rt.roomHandler.RemoveParticipant) // Remove participant
-		roomGroup.POST("/:id/transfer-host", rt.roomHandler.TransferHost)            // Transfer host
-=======
 		// Participant management (RESTful)
 		roomGroup.POST("/:id/participants", rt.roomHandler.JoinRoom)                      // Join room (create participant)
 		roomGroup.DELETE("/:id/participants/me", rt.roomHandler.LeaveRoom)                // Leave room (delete own participant)
@@ -127,7 +116,7 @@ func (rt *Router) setupRoomRoutes(g *echo.Group) {
 		roomGroup.POST("/:id/participants/:pid/deny", rt.roomHandler.DenyParticipant)     // Deny participant
 		roomGroup.DELETE("/:id/participants/:pid", rt.roomHandler.RemoveParticipant)      // Remove participant
 		roomGroup.PATCH("/:id/host", rt.roomHandler.TransferHost)                         // Transfer host
->>>>>>> Stashed changes
+
 	} else {
 		// Placeholder routes when handler is not initialized
 		roomGroup.POST("", rt.notImplemented)

@@ -672,6 +672,68 @@ const docTemplate = `{
                 }
             }
         },
+        "/rooms/{id}/participants/waiting": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Gets a list of participants waiting for host approval (host only)",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Participants"
+                ],
+                "summary": "Get waiting participants",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Room ID (UUID)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "List of waiting participants",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.ParticipantListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid room ID",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "User not authenticated",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "User is not the host",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Failed to get waiting participants",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/rooms/{id}/participants/{pid}": {
             "delete": {
                 "security": [
@@ -745,6 +807,157 @@ const docTemplate = `{
                     },
                     "500": {
                         "description": "Failed to remove participant",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/rooms/{id}/participants/{pid}/admit": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Approves a participant from waiting room and allows them to join (host only)",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Participants"
+                ],
+                "summary": "Admit a waiting participant",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Room ID (UUID)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Participant ID (UUID)",
+                        "name": "pid",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Participant admitted successfully",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid room or participant ID",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "User not authenticated",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "User is not the host",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Failed to admit participant",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/rooms/{id}/participants/{pid}/deny": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Rejects a participant from waiting room (host only)",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Participants"
+                ],
+                "summary": "Deny a waiting participant",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Room ID (UUID)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Participant ID (UUID)",
+                        "name": "pid",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Reason for denial",
+                        "name": "request",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.DenyParticipantRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Participant denied",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid room or participant ID",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "User not authenticated",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "User is not the host",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Failed to deny participant",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -978,30 +1191,48 @@ const docTemplate = `{
                 }
             }
         },
+        "github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.DenyParticipantRequest": {
+            "type": "object",
+            "properties": {
+                "reason": {
+                    "type": "string"
+                }
+            }
+        },
         "github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.JoinRoomResponse": {
             "type": "object",
             "properties": {
-                "join_url": {
-                    "description": "URL để share cho users khác",
-                    "type": "string"
-                },
                 "livekit_token": {
+                    "description": "Only for joined status",
                     "type": "string"
                 },
                 "livekit_url": {
+                    "description": "Only for joined status",
+                    "type": "string"
+                },
+                "message": {
+                    "description": "User-friendly message",
                     "type": "string"
                 },
                 "participant": {
-                    "$ref": "#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.ParticipantResponse"
-                },
-                "participants": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.ParticipantResponse"
-                    }
+                    "description": "Current user's participant record",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.ParticipantResponse"
+                        }
+                    ]
                 },
                 "room": {
-                    "$ref": "#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.RoomResponse"
+                    "description": "Room information",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.RoomResponse"
+                        }
+                    ]
+                },
+                "status": {
+                    "description": "\"joined\" or \"waiting\"",
+                    "type": "string"
                 }
             }
         },
@@ -1133,10 +1364,6 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "id": {
-                    "type": "string"
-                },
-                "join_url": {
-                    "description": "Meeting URL để share",
                     "type": "string"
                 },
                 "livekit_room_name": {
