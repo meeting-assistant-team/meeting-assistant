@@ -106,7 +106,6 @@ func (h *Room) CreateRoom(c echo.Context) error {
 		Room:         presenter.ToRoomResponse(output.Room),
 		LivekitToken: output.LivekitToken,
 		LivekitURL:   output.LivekitURL,
-		JoinURL:      presenter.GenerateJoinURL(output.Room.ID.String()),
 	}
 
 	return c.JSON(http.StatusCreated, response)
@@ -264,10 +263,19 @@ func (h *Room) JoinRoom(c echo.Context) error {
 		})
 	}
 
-	// Get all participants
-	participants, _ := h.roomService.GetParticipants(c.Request().Context(), roomID)
+	// Check if user is in waiting room
+	if participant.Status == entities.ParticipantStatusWaiting {
+		// Return waiting room response (no LiveKit token)
+		response := &room.JoinRoomResponse{
+			Status:      "waiting",
+			Message:     "You are in the waiting room. Waiting for host approval.",
+			Room:        presenter.ToRoomResponse(r),
+			Participant: presenter.ToParticipantResponse(participant),
+		}
+		return c.JSON(http.StatusOK, response)
+	}
 
-	// Generate LiveKit token for the participant
+	// User has joined successfully - generate LiveKit token
 	livekitToken, err := h.roomService.GenerateParticipantToken(c.Request().Context(), r, participant)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]interface{}{
@@ -276,13 +284,14 @@ func (h *Room) JoinRoom(c echo.Context) error {
 		})
 	}
 
+	// Return joined response with LiveKit credentials
 	response := &room.JoinRoomResponse{
+		Status:       "joined",
+		Message:      "Successfully joined the room",
 		Room:         presenter.ToRoomResponse(r),
+		Participant:  presenter.ToParticipantResponse(participant),
 		LivekitToken: livekitToken,
 		LivekitURL:   h.roomService.GetLivekitURL(),
-		JoinURL:      presenter.GenerateJoinURL(r.ID.String()),
-		Participants: presenter.ToParticipantListResponse(participants).Participants,
-		Participant:  presenter.ToParticipantResponse(participant),
 	}
 
 	return c.JSON(http.StatusOK, response)
@@ -537,6 +546,160 @@ func (h *Room) TransferHost(c echo.Context) error {
 
 	return c.JSON(http.StatusOK, map[string]interface{}{
 		"message": "host transferred successfully",
+	})
+}
+
+// GetWaitingParticipants handles GET /rooms/:id/participants/waiting
+// @Summary      Get waiting participants
+// @Description  Gets a list of participants waiting for host approval (host only)
+// @Tags         Participants
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id   path      string  true  "Room ID (UUID)"
+// @Success      200  {object}  room.ParticipantListResponse  "List of waiting participants"
+// @Failure      400  {object}  map[string]interface{}  "Invalid room ID"
+// @Failure      401  {object}  map[string]interface{}  "User not authenticated"
+// @Failure      403  {object}  map[string]interface{}  "User is not the host"
+// @Failure      500  {object}  map[string]interface{}  "Failed to get waiting participants"
+// @Router       /rooms/{id}/participants/waiting [get]
+func (h *Room) GetWaitingParticipants(c echo.Context) error {
+	roomID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]interface{}{
+			"error":   "invalid_room_id",
+			"message": "room ID must be a valid UUID",
+		})
+	}
+
+	userID, ok := c.Get("user_id").(uuid.UUID)
+	if !ok {
+		return c.JSON(http.StatusUnauthorized, map[string]interface{}{
+			"error":   "unauthorized",
+			"message": "user not authenticated",
+		})
+	}
+
+	// Get waiting participants (service will check if user is host)
+	participants, err := h.roomService.GetWaitingParticipants(c.Request().Context(), roomID, userID)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]interface{}{
+			"error":   "failed_to_get_waiting_participants",
+			"message": err.Error(),
+		})
+	}
+
+	return c.JSON(http.StatusOK, presenter.ToParticipantListResponse(participants))
+}
+
+// AdmitParticipant handles POST /rooms/:id/participants/:pid/admit
+// @Summary      Admit a waiting participant
+// @Description  Approves a participant from waiting room and allows them to join (host only)
+// @Tags         Participants
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id   path      string  true  "Room ID (UUID)"
+// @Param        pid  path      string  true  "Participant ID (UUID)"
+// @Success      200  {object}  map[string]interface{}  "Participant admitted successfully"
+// @Failure      400  {object}  map[string]interface{}  "Invalid room or participant ID"
+// @Failure      401  {object}  map[string]interface{}  "User not authenticated"
+// @Failure      403  {object}  map[string]interface{}  "User is not the host"
+// @Failure      500  {object}  map[string]interface{}  "Failed to admit participant"
+// @Router       /rooms/{id}/participants/{pid}/admit [post]
+func (h *Room) AdmitParticipant(c echo.Context) error {
+	roomID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]interface{}{
+			"error":   "invalid_room_id",
+			"message": "room ID must be a valid UUID",
+		})
+	}
+
+	participantID, err := uuid.Parse(c.Param("pid"))
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]interface{}{
+			"error":   "invalid_participant_id",
+			"message": "participant ID must be a valid UUID",
+		})
+	}
+
+	userID, ok := c.Get("user_id").(uuid.UUID)
+	if !ok {
+		return c.JSON(http.StatusUnauthorized, map[string]interface{}{
+			"error":   "unauthorized",
+			"message": "user not authenticated",
+		})
+	}
+
+	// Admit participant (service will check if user is host)
+	if err := h.roomService.AdmitParticipant(c.Request().Context(), roomID, userID, participantID); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]interface{}{
+			"error":   "failed_to_admit_participant",
+			"message": err.Error(),
+		})
+	}
+
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"message": "participant admitted successfully",
+	})
+}
+
+// DenyParticipant handles POST /rooms/:id/participants/:pid/deny
+// @Summary      Deny a waiting participant
+// @Description  Rejects a participant from waiting room (host only)
+// @Tags         Participants
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id      path      string  true  "Room ID (UUID)"
+// @Param        pid     path      string  true  "Participant ID (UUID)"
+// @Param        request body      room.DenyParticipantRequest  false  "Reason for denial"
+// @Success      200     {object}  map[string]interface{}  "Participant denied"
+// @Failure      400     {object}  map[string]interface{}  "Invalid room or participant ID"
+// @Failure      401     {object}  map[string]interface{}  "User not authenticated"
+// @Failure      403     {object}  map[string]interface{}  "User is not the host"
+// @Failure      500     {object}  map[string]interface{}  "Failed to deny participant"
+// @Router       /rooms/{id}/participants/{pid}/deny [post]
+func (h *Room) DenyParticipant(c echo.Context) error {
+	roomID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]interface{}{
+			"error":   "invalid_room_id",
+			"message": "room ID must be a valid UUID",
+		})
+	}
+
+	participantID, err := uuid.Parse(c.Param("pid"))
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]interface{}{
+			"error":   "invalid_participant_id",
+			"message": "participant ID must be a valid UUID",
+		})
+	}
+
+	userID, ok := c.Get("user_id").(uuid.UUID)
+	if !ok {
+		return c.JSON(http.StatusUnauthorized, map[string]interface{}{
+			"error":   "unauthorized",
+			"message": "user not authenticated",
+		})
+	}
+
+	var req room.DenyParticipantRequest
+	if err := c.Bind(&req); err != nil {
+		// Reason is optional, so we ignore bind errors
+		req.Reason = ""
+	}
+
+	// Deny participant (service will check if user is host)
+	if err := h.roomService.DenyParticipant(c.Request().Context(), roomID, userID, participantID, req.Reason); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]interface{}{
+			"error":   "failed_to_deny_participant",
+			"message": err.Error(),
+		})
+	}
+
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"message": "participant denied",
 	})
 }
 

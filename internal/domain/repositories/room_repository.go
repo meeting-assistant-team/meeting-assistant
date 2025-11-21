@@ -50,6 +50,9 @@ type RoomRepository interface {
 
 	// EndRoom marks a room as ended and calculates duration
 	EndRoom(ctx context.Context, roomID uuid.UUID) error
+
+	// UpdateHostID updates the room's host ID
+	UpdateHostID(ctx context.Context, roomID, newHostID uuid.UUID) error
 }
 
 // RoomFilters represents filter options for listing rooms

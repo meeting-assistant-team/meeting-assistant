@@ -70,7 +70,8 @@ func (r *roomRepository) FindByLivekitName(ctx context.Context, livekitName stri
 
 // Update updates an existing room
 func (r *roomRepository) Update(ctx context.Context, room *entities.Room) error {
-	return r.db.WithContext(ctx).Save(room).Error
+	// Use Updates to avoid zero-value issues and association problems
+	return r.db.WithContext(ctx).Model(room).Updates(room).Error
 }
 
 // Delete soft deletes a room
@@ -207,5 +208,14 @@ func (r *roomRepository) EndRoom(ctx context.Context, roomID uuid.UUID) error {
 			"status":   entities.RoomStatusEnded,
 			"ended_at": gorm.Expr("NOW()"),
 		}).
+		Error
+}
+
+// UpdateHostID updates the room's host ID
+func (r *roomRepository) UpdateHostID(ctx context.Context, roomID, newHostID uuid.UUID) error {
+	return r.db.WithContext(ctx).
+		Model(&entities.Room{}).
+		Where("id = ?", roomID).
+		Update("host_id", newHostID).
 		Error
 }

@@ -229,3 +229,14 @@ func (r *participantRepository) UpdateRole(ctx context.Context, participantID uu
 		Updates(updates).
 		Error
 }
+
+// FindWaitingByRoomID retrieves all waiting participants in a room
+func (r *participantRepository) FindWaitingByRoomID(ctx context.Context, roomID uuid.UUID) ([]*entities.Participant, error) {
+	var participants []*entities.Participant
+	err := r.db.WithContext(ctx).
+		Preload("User").
+		Where("room_id = ? AND status = ?", roomID, entities.ParticipantStatusWaiting).
+		Order("created_at ASC").
+		Find(&participants).Error
+	return participants, err
+}

@@ -62,4 +62,7 @@ type ParticipantRepository interface {
 
 	// UpdateRole updates participant role
 	UpdateRole(ctx context.Context, participantID uuid.UUID, role entities.ParticipantRole) error
+
+	// FindWaitingByRoomID retrieves all waiting participants in a room
+	FindWaitingByRoomID(ctx context.Context, roomID uuid.UUID) ([]*entities.Participant, error)
 }
