@@ -2,7 +2,6 @@ package presenter
 
 import (
 	"encoding/json"
-	"fmt"
 
 	"github.com/johnquangdev/meeting-assistant/internal/adapter/dto/room"
 	"github.com/johnquangdev/meeting-assistant/internal/domain/entities"
@@ -37,7 +36,6 @@ func ToRoomResponse(r *entities.Room) *room.RoomResponse {
 		StartedAt:           r.StartedAt,
 		EndedAt:             r.EndedAt,
 		Duration:            r.Duration,
-		JoinURL:             GenerateJoinURL(r.ID.String()), // Generate join URL
 		CreatedAt:           r.CreatedAt,
 		UpdatedAt:           r.UpdatedAt,
 	}
@@ -48,18 +46,6 @@ func ToRoomResponse(r *entities.Room) *room.RoomResponse {
 	}
 
 	return response
-}
-
-// GenerateJoinURL generates a meeting join URL for a room
-// TODO: Get backend URL from config
-func GenerateJoinURL(roomID string) string {
-	// Direct to backend join-url endpoint (for quick testing)
-	backendURL := "http://localhost:8080" // TODO: Load from config
-	return fmt.Sprintf("%s/v1/rooms/%s/join-url", backendURL, roomID)
-
-	// Option: Frontend URL (when you have frontend ready)
-	// frontendURL := "http://localhost:3000"
-	// return fmt.Sprintf("%s/rooms/%s", frontendURL, roomID)
 }
 
 // ToRoomListResponse converts a slice of Room entities to RoomListResponse

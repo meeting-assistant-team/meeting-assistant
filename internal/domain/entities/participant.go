@@ -22,10 +22,16 @@ type ParticipantStatus string
 
 const (
 	ParticipantStatusInvited  ParticipantStatus = "invited"
+	ParticipantStatusWaiting  ParticipantStatus = "waiting"
 	ParticipantStatusJoined   ParticipantStatus = "joined"
 	ParticipantStatusLeft     ParticipantStatus = "left"
 	ParticipantStatusRemoved  ParticipantStatus = "removed"
 	ParticipantStatusDeclined ParticipantStatus = "declined"
+<<<<<<< Updated upstream
+=======
+	ParticipantStatusWaiting  ParticipantStatus = "waiting"
+>>>>>>> Stashed changes
+	ParticipantStatusDenied   ParticipantStatus = "denied"
 )
 
 // Participant represents a user's participation in a room

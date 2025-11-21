@@ -25,7 +25,6 @@ type RoomResponse struct {
 	StartedAt           *time.Time             `json:"started_at,omitempty"`
 	EndedAt             *time.Time             `json:"ended_at,omitempty"`
 	Duration            *int                   `json:"duration,omitempty"`
-	JoinURL             string                 `json:"join_url,omitempty"` // Meeting URL để share
 	CreatedAt           time.Time              `json:"created_at"`
 	UpdatedAt           time.Time              `json:"updated_at"`
 }
@@ -35,7 +34,6 @@ type CreateRoomResponse struct {
 	Room         *RoomResponse `json:"room"`
 	LivekitToken string        `json:"livekit_token"`
 	LivekitURL   string        `json:"livekit_url"`
-	JoinURL      string        `json:"join_url"` // URL để share cho users khác
 }
 
 // ParticipantResponse represents a participant in responses
@@ -60,12 +58,12 @@ type ParticipantResponse struct {
 
 // JoinRoomResponse represents the response after joining a room
 type JoinRoomResponse struct {
-	Room         *RoomResponse          `json:"room"`
-	LivekitToken string                 `json:"livekit_token"`
-	LivekitURL   string                 `json:"livekit_url"`
-	JoinURL      string                 `json:"join_url"` // URL để share cho users khác
-	Participants []*ParticipantResponse `json:"participants"`
-	Participant  *ParticipantResponse   `json:"participant"`
+	Status       string               `json:"status"`                  // "joined" or "waiting"
+	Message      string               `json:"message"`                 // User-friendly message
+	Room         *RoomResponse        `json:"room"`                    // Room information
+	Participant  *ParticipantResponse `json:"participant"`             // Current user's participant record
+	LivekitToken string               `json:"livekit_token,omitempty"` // Only for joined status
+	LivekitURL   string               `json:"livekit_url,omitempty"`   // Only for joined status
 }
 
 // RoomListResponse represents a paginated list of rooms

@@ -102,33 +102,32 @@ func (rt *Router) setupRoomRoutes(g *echo.Group) {
 
 	if rt.roomHandler != nil {
 		// Room CRUD
-		roomGroup.POST("", rt.roomHandler.CreateRoom) // Create room
-		roomGroup.GET("", rt.roomHandler.ListRooms)   // List rooms
-		roomGroup.GET("/:id", rt.roomHandler.GetRoom) // Get room details
+		roomGroup.POST("", rt.roomHandler.CreateRoom)   // Create room
+		roomGroup.GET("", rt.roomHandler.ListRooms)     // List rooms
+		roomGroup.GET("/:id", rt.roomHandler.GetRoom)   // Get room details
+		roomGroup.PATCH("/:id", rt.roomHandler.EndRoom) // End room (update status to ended)
 
-		// Room actions
-		roomGroup.POST("/:id/join", rt.roomHandler.JoinRoom)   // Join room
-		roomGroup.POST("/:id/leave", rt.roomHandler.LeaveRoom) // Leave room
-		roomGroup.POST("/:id/end", rt.roomHandler.EndRoom)     // End room
-
-		// Participant management
+		// Participant management (RESTful)
+		roomGroup.POST("/:id/participants", rt.roomHandler.JoinRoom)                      // Join room (create participant)
+		roomGroup.DELETE("/:id/participants/me", rt.roomHandler.LeaveRoom)                // Leave room (delete own participant)
 		roomGroup.GET("/:id/participants", rt.roomHandler.GetParticipants)                // List participants
 		roomGroup.GET("/:id/participants/waiting", rt.roomHandler.GetWaitingParticipants) // Get waiting participants
 		roomGroup.POST("/:id/participants/:pid/admit", rt.roomHandler.AdmitParticipant)   // Admit participant
 		roomGroup.POST("/:id/participants/:pid/deny", rt.roomHandler.DenyParticipant)     // Deny participant
 		roomGroup.DELETE("/:id/participants/:pid", rt.roomHandler.RemoveParticipant)      // Remove participant
-		roomGroup.POST("/:id/transfer-host", rt.roomHandler.TransferHost)                 // Transfer host
+		roomGroup.PATCH("/:id/host", rt.roomHandler.TransferHost)                         // Transfer host
+
 	} else {
 		// Placeholder routes when handler is not initialized
 		roomGroup.POST("", rt.notImplemented)
 		roomGroup.GET("", rt.notImplemented)
 		roomGroup.GET("/:id", rt.notImplemented)
-		roomGroup.POST("/:id/join", rt.notImplemented)
-		roomGroup.POST("/:id/leave", rt.notImplemented)
-		roomGroup.POST("/:id/end", rt.notImplemented)
+		roomGroup.PATCH("/:id", rt.notImplemented)
+		roomGroup.POST("/:id/participants", rt.notImplemented)
+		roomGroup.DELETE("/:id/participants/me", rt.notImplemented)
 		roomGroup.GET("/:id/participants", rt.notImplemented)
 		roomGroup.DELETE("/:id/participants/:pid", rt.notImplemented)
-		roomGroup.POST("/:id/transfer-host", rt.notImplemented)
+		roomGroup.PATCH("/:id/host", rt.notImplemented)
 	}
 }
 

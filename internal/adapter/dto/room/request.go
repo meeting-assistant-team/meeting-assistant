@@ -57,3 +57,8 @@ type UpdateParticipantRequest struct {
 	IsMuted      *bool `json:"is_muted,omitempty"`
 	IsHandRaised *bool `json:"is_hand_raised,omitempty"`
 }
+
+// DenyParticipantRequest represents the request to deny a participant
+type DenyParticipantRequest struct {
+	Reason string `json:"reason,omitempty"`
+}
