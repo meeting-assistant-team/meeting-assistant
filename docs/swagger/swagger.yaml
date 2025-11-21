@@ -81,11 +81,6 @@ definitions:
     - name
     - type
     type: object
-  github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.DenyParticipantRequest:
-    properties:
-      reason:
-        type: string
-    type: object
   github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.JoinRoomResponse:
     properties:
       livekit_token:
@@ -525,8 +520,7 @@ paths:
       summary: Get room details
       tags:
       - Rooms
-  /rooms/{id}/end:
-    post:
+    patch:
       description: Ends a room session (host only)
       parameters:
       - description: Room ID (UUID)
@@ -567,7 +561,87 @@ paths:
       summary: End a room
       tags:
       - Rooms
-  /rooms/{id}/join:
+  /rooms/{id}/host:
+    patch:
+      consumes:
+      - application/json
+      description: Transfers the host role to another participant (host only)
+      parameters:
+      - description: Room ID (UUID)
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: New host user ID
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.TransferHostRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Host transferred successfully
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid room ID, new host ID, or new host is not a participant
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: User not authenticated
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: User is not the host
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Failed to transfer host
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Transfer host role
+      tags:
+      - Participants
+  /rooms/{id}/participants:
+    get:
+      description: Gets a list of all participants in a room
+      parameters:
+      - description: Room ID (UUID)
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: List of participants
+          schema:
+            $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.ParticipantListResponse'
+        "400":
+          description: Invalid room ID
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Failed to get participants
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get room participants
+      tags:
+      - Participants
     post:
       consumes:
       - application/json
@@ -610,74 +684,6 @@ paths:
       summary: Join a room
       tags:
       - Rooms
-  /rooms/{id}/leave:
-    post:
-      description: Allows a user to leave a room they are currently in
-      parameters:
-      - description: Room ID (UUID)
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: Successfully left the room
-          schema:
-            additionalProperties: true
-            type: object
-        "400":
-          description: Invalid room ID
-          schema:
-            additionalProperties: true
-            type: object
-        "401":
-          description: User not authenticated
-          schema:
-            additionalProperties: true
-            type: object
-        "500":
-          description: Failed to leave room
-          schema:
-            additionalProperties: true
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Leave a room
-      tags:
-      - Rooms
-  /rooms/{id}/participants:
-    get:
-      description: Gets a list of all participants in a room
-      parameters:
-      - description: Room ID (UUID)
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: List of participants
-          schema:
-            $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.ParticipantListResponse'
-        "400":
-          description: Invalid room ID
-          schema:
-            additionalProperties: true
-            type: object
-        "500":
-          description: Failed to get participants
-          schema:
-            additionalProperties: true
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Get room participants
-      tags:
-      - Participants
   /rooms/{id}/participants/{pid}:
     delete:
       consumes:
@@ -734,8 +740,7 @@ paths:
       - Participants
   /rooms/{id}/participants/{pid}/admit:
     post:
-      description: Approves a participant from waiting room and allows them to join
-        (host only)
+      description: Admits a waiting participant into the room (host only)
       parameters:
       - description: Room ID (UUID)
         in: path
@@ -777,14 +782,12 @@ paths:
             type: object
       security:
       - BearerAuth: []
-      summary: Admit a waiting participant
+      summary: Admit participant
       tags:
-      - Participants
+      - Rooms
   /rooms/{id}/participants/{pid}/deny:
     post:
-      consumes:
-      - application/json
-      description: Rejects a participant from waiting room (host only)
+      description: Denies a waiting participant from joining the room (host only)
       parameters:
       - description: Room ID (UUID)
         in: path
@@ -796,16 +799,11 @@ paths:
         name: pid
         required: true
         type: string
-      - description: Reason for denial
-        in: body
-        name: request
-        schema:
-          $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.DenyParticipantRequest'
       produces:
       - application/json
       responses:
         "200":
-          description: Participant denied
+          description: Participant denied successfully
           schema:
             additionalProperties: true
             type: object
@@ -831,12 +829,49 @@ paths:
             type: object
       security:
       - BearerAuth: []
-      summary: Deny a waiting participant
+      summary: Deny participant
       tags:
-      - Participants
+      - Rooms
+  /rooms/{id}/participants/me:
+    delete:
+      description: Allows a user to leave a room they are currently in
+      parameters:
+      - description: Room ID (UUID)
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Successfully left the room
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid room ID
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: User not authenticated
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Failed to leave room
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Leave a room
+      tags:
+      - Rooms
   /rooms/{id}/participants/waiting:
     get:
-      description: Gets a list of participants waiting for host approval (host only)
+      description: Retrieves all participants waiting for host approval (host only)
       parameters:
       - description: Room ID (UUID)
         in: path
@@ -874,57 +909,7 @@ paths:
       - BearerAuth: []
       summary: Get waiting participants
       tags:
-      - Participants
-  /rooms/{id}/transfer-host:
-    post:
-      consumes:
-      - application/json
-      description: Transfers the host role to another participant (host only)
-      parameters:
-      - description: Room ID (UUID)
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: New host user ID
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.TransferHostRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: Host transferred successfully
-          schema:
-            additionalProperties: true
-            type: object
-        "400":
-          description: Invalid room ID, new host ID, or new host is not a participant
-          schema:
-            additionalProperties: true
-            type: object
-        "401":
-          description: User not authenticated
-          schema:
-            additionalProperties: true
-            type: object
-        "403":
-          description: User is not the host
-          schema:
-            additionalProperties: true
-            type: object
-        "500":
-          description: Failed to transfer host
-          schema:
-            additionalProperties: true
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Transfer host role
-      tags:
-      - Participants
+      - Rooms
   /webhooks/livekit:
     post:
       consumes:

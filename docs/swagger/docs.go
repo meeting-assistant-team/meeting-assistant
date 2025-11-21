@@ -438,10 +438,8 @@ const docTemplate = `{
                         }
                     }
                 }
-            }
-        },
-        "/rooms/{id}/end": {
-            "post": {
+            },
+            "patch": {
                 "security": [
                     {
                         "BearerAuth": []
@@ -503,7 +501,128 @@ const docTemplate = `{
                 }
             }
         },
-        "/rooms/{id}/join": {
+        "/rooms/{id}/host": {
+            "patch": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Transfers the host role to another participant (host only)",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Participants"
+                ],
+                "summary": "Transfer host role",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Room ID (UUID)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "New host user ID",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.TransferHostRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Host transferred successfully",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid room ID, new host ID, or new host is not a participant",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "User not authenticated",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "User is not the host",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Failed to transfer host",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/rooms/{id}/participants": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Gets a list of all participants in a room",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Participants"
+                ],
+                "summary": "Get room participants",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Room ID (UUID)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "List of participants",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.ParticipantListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid room ID",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Failed to get participants",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
             "post": {
                 "security": [
                     {
@@ -568,8 +687,8 @@ const docTemplate = `{
                 }
             }
         },
-        "/rooms/{id}/leave": {
-            "post": {
+        "/rooms/{id}/participants/me": {
+            "delete": {
                 "security": [
                     {
                         "BearerAuth": []
@@ -624,54 +743,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/rooms/{id}/participants": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Gets a list of all participants in a room",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Participants"
-                ],
-                "summary": "Get room participants",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Room ID (UUID)",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "List of participants",
-                        "schema": {
-                            "$ref": "#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.ParticipantListResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Invalid room ID",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "500": {
-                        "description": "Failed to get participants",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    }
-                }
-            }
-        },
         "/rooms/{id}/participants/waiting": {
             "get": {
                 "security": [
@@ -679,12 +750,12 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Gets a list of participants waiting for host approval (host only)",
+                "description": "Retrieves all participants waiting for host approval (host only)",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
-                    "Participants"
+                    "Rooms"
                 ],
                 "summary": "Get waiting participants",
                 "parameters": [
@@ -822,14 +893,14 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Approves a participant from waiting room and allows them to join (host only)",
+                "description": "Admits a waiting participant into the room (host only)",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
-                    "Participants"
+                    "Rooms"
                 ],
-                "summary": "Admit a waiting participant",
+                "summary": "Admit participant",
                 "parameters": [
                     {
                         "type": "string",
@@ -892,17 +963,14 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Rejects a participant from waiting room (host only)",
-                "consumes": [
-                    "application/json"
-                ],
+                "description": "Denies a waiting participant from joining the room (host only)",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
-                    "Participants"
+                    "Rooms"
                 ],
-                "summary": "Deny a waiting participant",
+                "summary": "Deny participant",
                 "parameters": [
                     {
                         "type": "string",
@@ -917,19 +985,11 @@ const docTemplate = `{
                         "name": "pid",
                         "in": "path",
                         "required": true
-                    },
-                    {
-                        "description": "Reason for denial",
-                        "name": "request",
-                        "in": "body",
-                        "schema": {
-                            "$ref": "#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.DenyParticipantRequest"
-                        }
                     }
                 ],
                 "responses": {
                     "200": {
-                        "description": "Participant denied",
+                        "description": "Participant denied successfully",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -958,81 +1018,6 @@ const docTemplate = `{
                     },
                     "500": {
                         "description": "Failed to deny participant",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    }
-                }
-            }
-        },
-        "/rooms/{id}/transfer-host": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Transfers the host role to another participant (host only)",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Participants"
-                ],
-                "summary": "Transfer host role",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Room ID (UUID)",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "New host user ID",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.TransferHostRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Host transferred successfully",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "400": {
-                        "description": "Invalid room ID, new host ID, or new host is not a participant",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "401": {
-                        "description": "User not authenticated",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "403": {
-                        "description": "User is not the host",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "500": {
-                        "description": "Failed to transfer host",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -1188,14 +1173,6 @@ const docTemplate = `{
                         "private",
                         "scheduled"
                     ]
-                }
-            }
-        },
-        "github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.DenyParticipantRequest": {
-            "type": "object",
-            "properties": {
-                "reason": {
-                    "type": "string"
                 }
             }
         },
