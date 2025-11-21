@@ -41,7 +41,7 @@ type Service interface {
 	AdmitParticipant(ctx context.Context, roomID, hostID, participantID uuid.UUID) error
 
 	// DenyParticipant denies a waiting participant from joining the room
-	DenyParticipant(ctx context.Context, roomID, hostID, participantID uuid.UUID) error
+	DenyParticipant(ctx context.Context, roomID, hostID, participantID uuid.UUID, reason string) error
 
 	// RemoveParticipant removes a participant from a room (host only)
 	RemoveParticipant(ctx context.Context, roomID, hostID, participantID uuid.UUID, reason string) error
@@ -60,15 +60,6 @@ type Service interface {
 
 	// UpdateParticipantStatus updates participant status (for webhooks)
 	UpdateParticipantStatus(ctx context.Context, roomID, userID uuid.UUID, status string) error
-
-	// GetWaitingParticipants retrieves all waiting participants in a room
-	GetWaitingParticipants(ctx context.Context, roomID, hostID uuid.UUID) ([]*entities.Participant, error)
-
-	// AdmitParticipant admits a waiting participant to join the room
-	AdmitParticipant(ctx context.Context, roomID, hostID, participantID uuid.UUID) error
-
-	// DenyParticipant denies a waiting participant from joining the room
-	DenyParticipant(ctx context.Context, roomID, hostID, participantID uuid.UUID, reason string) error
 
 	// GetParticipantByRoomAndUser retrieves a participant by room and user ID
 	GetParticipantByRoomAndUser(ctx context.Context, roomID, userID uuid.UUID) (*entities.Participant, error)
