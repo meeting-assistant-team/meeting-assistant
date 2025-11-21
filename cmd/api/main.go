@@ -19,6 +19,7 @@ import (
 	"github.com/johnquangdev/meeting-assistant/internal/adapter/repository"
 	"github.com/johnquangdev/meeting-assistant/internal/infrastructure/cache"
 	"github.com/johnquangdev/meeting-assistant/internal/infrastructure/database"
+	"github.com/johnquangdev/meeting-assistant/internal/infrastructure/external/livekit"
 	"github.com/johnquangdev/meeting-assistant/internal/infrastructure/external/oauth"
 	httpmw "github.com/johnquangdev/meeting-assistant/internal/infrastructure/http/middleware"
 	"github.com/johnquangdev/meeting-assistant/internal/usecase/auth"
@@ -148,14 +149,33 @@ func main() {
 	authHandler := handler.NewAuth(oauthService)
 	log.Println("✅ Auth handler initialized successfully")
 
+	// Initialize LiveKit client
+	log.Println("🎥 Initializing LiveKit client...")
+	livekitClient := livekit.NewClient(
+		cfg.LiveKit.URL,
+		cfg.LiveKit.APIKey,
+		cfg.LiveKit.APISecret,
+		cfg.LiveKit.UseMock,
+	)
+	if cfg.LiveKit.UseMock {
+		log.Println("⚠️  LiveKit running in MOCK mode (no real server needed)")
+	} else {
+		log.Printf("✅ LiveKit connected to: %s", cfg.LiveKit.URL)
+	}
+
 	// Initialize room service
 	log.Println("🏠 Initializing room service...")
-	roomService := room.NewRoomService(roomRepo, participantRepo)
+	roomService := room.NewRoomService(roomRepo, participantRepo, livekitClient, cfg.LiveKit.URL)
 
 	// Initialize room handler
 	log.Println("🚪 Initializing room handler...")
 	roomHandler := handler.NewRoomHandler(roomService)
 	log.Println("✅ Room handler initialized successfully")
+
+	// Initialize webhook handler (for LiveKit webhooks)
+	log.Println("🪝 Initializing webhook handler...")
+	webhookHandler := handler.NewWebhookHandler(roomService, cfg.LiveKit.WebhookSecret)
+	log.Println("✅ Webhook handler initialized successfully")
 
 	// Setup router with handlers
 	log.Println("🛣️  Setting up routes...")
@@ -163,7 +183,7 @@ func main() {
 	// Create Echo auth middleware from existing OAuth service
 	authEchoMW := httpmw.EchoAuth(oauthService)
 
-	router := handler.NewRouter(cfg, authHandler, roomHandler, authEchoMW)
+	router := handler.NewRouter(cfg, authHandler, roomHandler, webhookHandler, authEchoMW)
 	router.Setup(e)
 
 	// Start server
