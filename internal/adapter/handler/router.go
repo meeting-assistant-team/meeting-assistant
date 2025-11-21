@@ -112,9 +112,12 @@ func (rt *Router) setupRoomRoutes(g *echo.Group) {
 		roomGroup.POST("/:id/end", rt.roomHandler.EndRoom)     // End room
 
 		// Participant management
-		roomGroup.GET("/:id/participants", rt.roomHandler.GetParticipants)           // List participants
-		roomGroup.DELETE("/:id/participants/:pid", rt.roomHandler.RemoveParticipant) // Remove participant
-		roomGroup.POST("/:id/transfer-host", rt.roomHandler.TransferHost)            // Transfer host
+		roomGroup.GET("/:id/participants", rt.roomHandler.GetParticipants)                // List participants
+		roomGroup.GET("/:id/participants/waiting", rt.roomHandler.GetWaitingParticipants) // Get waiting participants
+		roomGroup.POST("/:id/participants/:pid/admit", rt.roomHandler.AdmitParticipant)   // Admit participant
+		roomGroup.POST("/:id/participants/:pid/deny", rt.roomHandler.DenyParticipant)     // Deny participant
+		roomGroup.DELETE("/:id/participants/:pid", rt.roomHandler.RemoveParticipant)      // Remove participant
+		roomGroup.POST("/:id/transfer-host", rt.roomHandler.TransferHost)                 // Transfer host
 	} else {
 		// Placeholder routes when handler is not initialized
 		roomGroup.POST("", rt.notImplemented)

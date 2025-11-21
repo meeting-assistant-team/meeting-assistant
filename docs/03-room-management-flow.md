@@ -4,17 +4,17 @@
 
 Hệ thống quản lý phòng họp cho phép người dùng tạo, tham gia và quản lý các cuộc họp trực tuyến với audio/video real-time thông qua LiveKit.
 
-## Room Types
+## Room Access Control
 
-### Public Room
-- Bất kỳ ai có link đều có thể tham gia
-- Không cần phê duyệt
-- Hiển thị trong danh sách public rooms
+### Join Flow
+- **Tất cả participants đều phải được host approve**
+- Click link → Login → Waiting room
+- Host nhận notification → Approve/Deny
+- Không có auto-admit, host kiểm soát hoàn toàn
 
-### Private Room
-- Chỉ người được mời mới tham gia
-- Cần approval từ host
-- Yêu cầu access code hoặc invitation token
+### Exception: Host
+- Host là người tạo room → tự động join ngay
+- Không cần approval cho chính host
 
 ## Create Room Flow
 
@@ -49,65 +49,119 @@ sequenceDiagram
     B->>B: Generate LiveKit token for host
     Note over B: Token with permissions:<br/>CanPublish, CanSubscribe,<br/>CanPublishData
     
-    B-->>F: { room, livekit_token, livekit_url }
+    B->>B: Generate shareable join link
+    Note over B: /rooms/{room_id}/join
+    
+    B-->>F: { room, livekit_token, livekit_url, join_url }
     
     F->>F: Navigate to room page
+    F->>F: Show "Copy Link" button with join_url
     F->>LK: Connect via WebSocket
     Note over F,LK: Using LiveKit SDK
     
-    F-->>U: Show meeting room UI
+    F-->>U: Show meeting room UI + shareable link
 ```
 
-## Join Room Flow
+## Join Room Flow (Via Shared Link)
 
 ```mermaid
 sequenceDiagram
-    participant U as User (Participant)
+    participant P as Participant
     participant F as Frontend
     participant B as Backend
     participant LK as LiveKit Server
     participant DB as Database
     participant WS as WebSocket (Notifications)
+    participant H as Host
     
-    U->>F: Enter room code or click invite link
-    F->>B: GET /api/rooms/:id/join
-    Note over F,B: Authorization: Bearer {token}
+    Note over P: Host shared link:<br/>/rooms/{room_id}/join
+    
+    P->>F: Click on shared link
+    F->>F: Extract room_id from URL
+    
+    alt User not logged in
+        F->>F: Redirect to login page
+        Note over F: Save join URL to redirect<br/>after successful login
+        P->>F: Complete login/signup
+        F->>F: Redirect back to join URL
+    end
+    
+    Note over F,B: User is now authenticated
+    
+    F->>B: POST /api/rooms/:id/join
+    Note over F,B: Authorization: Bearer {token}<br/>(Required for identity)
     
     B->>DB: SELECT room WHERE id = ?
     
     alt Room not found
         B-->>F: 404 Not Found
-        F-->>U: "Room does not exist"
+        F-->>P: "Room does not exist"
     else Room found
-        B->>DB: Check room capacity
-        
-        alt Room full
-            B-->>F: 400 Bad Request "Room is full"
-        else Room available
-            alt Private room
-                B->>DB: Check if user invited
-                alt Not invited
-                    B-->>F: 403 Forbidden
-                    F-->>U: "Request access"
+        B->>DB: Check room status
+        alt Room ended
+            B-->>F: 400 Bad Request "Room has ended"
+            F-->>P: "This meeting has ended"
+        else Room active/scheduled
+            B->>DB: Check room capacity
+            
+            alt Room full
+                B-->>F: 400 Bad Request "Room is full"
+                F-->>P: "Room is at maximum capacity"
+            else Room available
+                B->>DB: Check if user is host
+                
+                alt User is host
+                    B->>DB: UPDATE participants<br/>SET status = 'joined'
+                    
+                    B->>B: Generate LiveKit token
+                    B->>DB: UPDATE rooms SET participant_count++
+                    
+                    B-->>F: { room, livekit_token, participants }
+                    F->>LK: Connect to LiveKit room
+                    F-->>P: Show meeting UI (as host)
+                    
+                else User is participant
+                    B->>DB: INSERT INTO participants<br/>SET status = 'waiting'
+                    
+                    B->>WS: Notify host
+                    Note over WS: { event: "join_request",<br/>user: {...} }
+                    
+                    WS-->>H: Show join request notification
+                    
+                    B-->>F: { status: "waiting_for_approval" }
+                    F-->>P: Show "Waiting for host to let you in..."
+                    
+                    Note over P,H: Participant waits in waiting room
+                    
+                    alt Host approves
+                        H->>F: Click "Admit"
+                        F->>B: POST /api/rooms/:id/participants/:pid/admit
+                        
+                        B->>DB: UPDATE participants<br/>SET status = 'joined'
+                        B->>B: Generate LiveKit token
+                        B->>DB: UPDATE rooms SET participant_count++
+                        
+                        B->>WS: Notify participant
+                        Note over WS: { event: "admission_approved" }
+                        
+                        WS-->>F: Approved notification
+                        F->>LK: Connect to LiveKit room
+                        F-->>P: Show meeting UI
+                        
+                    else Host rejects
+                        H->>F: Click "Deny"
+                        F->>B: POST /api/rooms/:id/participants/:pid/deny
+                        
+                        B->>DB: UPDATE participants<br/>SET status = 'denied'
+                        
+                        B->>WS: Notify participant
+                        Note over WS: { event: "admission_denied" }
+                        
+                        WS-->>F: Denied notification
+                        F-->>P: "Host denied your request"
+                    end
                 end
             end
-            
-            B->>DB: INSERT INTO participants
-            Note over DB: user_id, room_id,<br/>joined_at, role: participant
-            
-            B->>B: Generate LiveKit token
-            Note over B: Participant permissions
-            
-            B->>DB: UPDATE rooms SET participant_count++
-            
-            B->>WS: Notify existing participants
-            Note over WS: { event: "participant_joined",<br/>user: {...} }
-            
-            B-->>F: { room, livekit_token, participants }
-            
-            F->>LK: Connect to LiveKit room
-            F->>LK: Enable camera/microphone
-            F-->>U: Show meeting UI
         end
     end
 ```
@@ -212,44 +266,36 @@ sequenceDiagram
     F-->>U: Redirect to dashboard
 ```
 
-## Invite Participant Flow
+## Share Room Link Flow
 
 ```mermaid
 sequenceDiagram
     participant H as Host
     participant F as Frontend
-    participant B as Backend
-    participant E as Email Service
-    participant DB as Database
+    participant C as Clipboard/Share API
+    participant P as Participants (External)
     
-    H->>F: Click "Invite People"
-    F->>F: Show invite dialog
-    H->>F: Enter email addresses
+    Note over H,F: Host is in meeting room
     
-    F->>B: POST /api/rooms/:id/invite
-    Note over F,B: { emails: ["user1@ex.com", "user2@ex.com"] }
+    H->>F: Click "Share Link" or "Copy Link"
     
-    loop For each email
-        B->>DB: Check if user exists
+    alt Copy to clipboard
+        F->>F: Get join_url from room data
+        Note over F: /rooms/{room_id}/join
+        F->>C: navigator.clipboard.writeText(url)
+        F-->>H: Show "Link copied!" notification
+        H->>H: Paste link in chat/email/etc
         
-        alt User exists
-            B->>DB: INSERT INTO room_invitations
-            Note over DB: room_id, user_id, invited_by
-            B->>DB: INSERT INTO notifications
-        else User not exists
-            B->>DB: INSERT INTO pending_invitations
-            Note over DB: room_id, email, token
-        end
-        
-        B->>B: Generate invitation link
-        Note over B: /rooms/:id/join?token=xxx
-        
-        B->>E: Send invitation email
-        Note over E: Subject: "You're invited to meeting"<br/>Body: Link + meeting details
+    else Use Web Share API (mobile)
+        F->>C: navigator.share({ url, title })
+        C->>C: Show native share dialog
+        H->>C: Choose app (WhatsApp, Email, etc)
+        C->>P: Send link via chosen app
     end
     
-    B-->>F: { sent: 5, failed: 0 }
-    F-->>H: Show success message
+    Note over P: Participant receives link
+    P->>P: Click on link
+    Note over P: → Triggers "Join Room Flow"
 ```
 
 ## Recording Control Flow
@@ -389,16 +435,15 @@ POST /api/rooms
   Body:
     name: string (required)
     description: string
-    type: "public" | "private"
     max_participants: number (default: 10)
     settings:
       enable_recording: boolean
       enable_chat: boolean
-      require_approval: boolean (for private)
   Response:
     room: RoomObject
     livekit_token: string
     livekit_url: string
+    join_url: string
 
 # Get Room Details
 GET /api/rooms/:id
@@ -430,26 +475,37 @@ DELETE /api/rooms/:id
 POST /api/rooms/:id/end
   Response: { message: "Meeting ended" }
 
-# Join Room
-GET /api/rooms/:id/join
-  Query: token (for private rooms)
-  Response:
+# Join Room (via shared link)
+POST /api/rooms/:id/join
+  Headers: Authorization: Bearer {token}
+  Response (if host):
     room: RoomObject
     livekit_token: string
+    livekit_url: string
     participants: ParticipantObject[]
+    participant: ParticipantObject (current user)
+  Response (if participant - waiting):
+    status: "waiting_for_approval"
+    message: "Waiting for host to let you in"
+    participant: ParticipantObject (status: 'waiting')
+
+# Admit Participant (Host only)
+POST /api/rooms/:id/participants/:pid/admit
+  Response: { message: "Participant admitted" }
+
+# Deny Participant (Host only)  
+POST /api/rooms/:id/participants/:pid/deny
+  Body: { reason: string }
+  Response: { message: "Participant denied" }
+
+# Get Waiting Participants (Host only)
+GET /api/rooms/:id/participants/waiting
+  Response:
+    participants: ParticipantObject[] (status: 'waiting')
 
 # Leave Room
 POST /api/rooms/:id/leave
   Response: { message: "Left room" }
-
-# Invite Participants
-POST /api/rooms/:id/invite
-  Body:
-    emails: string[]
-    message: string (optional)
-  Response:
-    sent: number
-    failed: number
 ```
 
 ### Recording Management
@@ -511,7 +567,6 @@ CREATE TABLE rooms (
     name VARCHAR(255) NOT NULL,
     description TEXT,
     host_id UUID NOT NULL REFERENCES users(id),
-    type VARCHAR(20) NOT NULL DEFAULT 'public', -- 'public', 'private'
     status VARCHAR(20) NOT NULL DEFAULT 'active', -- 'scheduled', 'active', 'ended'
     livekit_room_name VARCHAR(255) UNIQUE NOT NULL,
     max_participants INT DEFAULT 10,
@@ -525,7 +580,6 @@ CREATE TABLE rooms (
 
 CREATE INDEX idx_rooms_host ON rooms(host_id);
 CREATE INDEX idx_rooms_status ON rooms(status);
-CREATE INDEX idx_rooms_type ON rooms(type);
 ```
 
 ### participants table
@@ -536,15 +590,18 @@ CREATE TABLE participants (
     room_id UUID NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
     user_id UUID NOT NULL REFERENCES users(id),
     role VARCHAR(20) DEFAULT 'participant', -- 'host', 'participant'
-    joined_at TIMESTAMP DEFAULT NOW(),
+    status VARCHAR(20) DEFAULT 'waiting', -- 'waiting', 'joined', 'left', 'denied'
+    joined_at TIMESTAMP,
     left_at TIMESTAMP,
     is_removed BOOLEAN DEFAULT false,
     metadata JSONB DEFAULT '{}',
+    created_at TIMESTAMP DEFAULT NOW(),
     CONSTRAINT unique_room_user UNIQUE (room_id, user_id)
 );
 
 CREATE INDEX idx_participants_room ON participants(room_id);
 CREATE INDEX idx_participants_user ON participants(user_id);
+CREATE INDEX idx_participants_status ON participants(status);
 ```
 
 ### recordings table
@@ -568,24 +625,10 @@ CREATE INDEX idx_recordings_room ON recordings(room_id);
 CREATE INDEX idx_recordings_status ON recordings(status);
 ```
 
-### room_invitations table
+### ~~room_invitations table~~ (REMOVED - Not needed with link sharing)
 
-```sql
-CREATE TABLE room_invitations (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    room_id UUID NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
-    inviter_id UUID NOT NULL REFERENCES users(id),
-    invitee_id UUID REFERENCES users(id),
-    invitee_email VARCHAR(255),
-    token VARCHAR(255) UNIQUE,
-    status VARCHAR(20) DEFAULT 'pending', -- 'pending', 'accepted', 'declined', 'expired'
-    expires_at TIMESTAMP,
-    created_at TIMESTAMP DEFAULT NOW()
-);
-
-CREATE INDEX idx_invitations_room ON room_invitations(room_id);
-CREATE INDEX idx_invitations_token ON room_invitations(token);
-```
+**Note:** With the new link-sharing approach, we don't need a separate invitations table. 
+Anyone with the link can join (if room not full and not ended).
 
 ## LiveKit Integration
 
@@ -678,6 +721,35 @@ func handleLiveKitWebhook(w http.ResponseWriter, r *http.Request) {
   }
 }
 
+// Join request (waiting room)
+{
+  type: "join_request",
+  data: {
+    user_id: string,
+    name: string,
+    avatar: string,
+    participant_id: string
+  }
+}
+
+// Admission approved
+{
+  type: "admission_approved",
+  data: {
+    participant_id: string,
+    livekit_token: string
+  }
+}
+
+// Admission denied
+{
+  type: "admission_denied",
+  data: {
+    participant_id: string,
+    reason: string
+  }
+}
+
 // Participant left
 {
   type: "participant_left",
@@ -741,9 +813,13 @@ func handleLiveKitWebhook(w http.ResponseWriter, r *http.Request) {
 ## Security Considerations
 
 ### Room Access Control
-- ✅ Validate user permissions before join
-- ✅ Check invitation tokens for private rooms
-- ✅ Rate limit room creation
+- ✅ **Require authentication** - Must be logged in to join any room
+- ✅ **Identify users** - Track who joined via JWT token user_id
+- ✅ **Host approval required** - All participants must be approved by host
+- ✅ **Waiting room** - Participants wait for host approval (except host)
+- ✅ **Host auto-join** - Host (creator) joins immediately without approval
+- ✅ Check room status (not ended) before allowing join
+- ✅ Rate limit room creation per user
 - ✅ Validate max participants limit
 
 ### LiveKit Security
@@ -760,13 +836,18 @@ func handleLiveKitWebhook(w http.ResponseWriter, r *http.Request) {
 
 ## Testing Scenarios
 
-- [ ] Create and join public room
-- [ ] Create and join private room with invite
-- [ ] Host can end meeting
-- [ ] Participant can leave meeting
-- [ ] Recording start/stop
-- [ ] Screen sharing
-- [ ] Participant removal
-- [ ] Host transfer
-- [ ] Connection recovery
-- [ ] Multiple participants (5-10)
+- [ ] **Host creates room** → gets join link
+- [ ] **Host joins own room** → auto-admitted (no waiting)
+- [ ] **Participant joins via link** → enters waiting room
+- [ ] **Host receives notification** → when someone requests to join
+- [ ] **Host admits participant** → participant joins meeting
+- [ ] **Host denies participant** → participant gets rejection message
+- [ ] **Waiting room UI** → show list of waiting participants to host
+- [ ] **Participant waiting UI** → show "Waiting for host..." message
+- [ ] **Multiple waiting** → multiple participants in waiting room
+- [ ] **Room full** → new joins rejected with error (after admission)
+- [ ] **Room ended** → cannot join via link
+- [ ] **Host can end meeting** → all participants disconnected
+- [ ] **Participant can leave meeting** → removed from participant list
+- [ ] **Copy link functionality** → test clipboard API
+- [ ] **Mobile share** → test Web Share API on mobile devices

@@ -81,23 +81,33 @@ definitions:
     - name
     - type
     type: object
+  github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.DenyParticipantRequest:
+    properties:
+      reason:
+        type: string
+    type: object
   github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.JoinRoomResponse:
     properties:
-      join_url:
-        description: URL để share cho users khác
-        type: string
       livekit_token:
+        description: Only for joined status
         type: string
       livekit_url:
+        description: Only for joined status
+        type: string
+      message:
+        description: User-friendly message
         type: string
       participant:
-        $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.ParticipantResponse'
-      participants:
-        items:
-          $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.ParticipantResponse'
-        type: array
+        allOf:
+        - $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.ParticipantResponse'
+        description: Current user's participant record
       room:
-        $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.RoomResponse'
+        allOf:
+        - $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.RoomResponse'
+        description: Room information
+      status:
+        description: '"joined" or "waiting"'
+        type: string
     type: object
   github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.ParticipantListResponse:
     properties:
@@ -184,9 +194,6 @@ definitions:
       host_id:
         type: string
       id:
-        type: string
-      join_url:
-        description: Meeting URL để share
         type: string
       livekit_room_name:
         type: string
@@ -723,6 +730,149 @@ paths:
       security:
       - BearerAuth: []
       summary: Remove a participant
+      tags:
+      - Participants
+  /rooms/{id}/participants/{pid}/admit:
+    post:
+      description: Approves a participant from waiting room and allows them to join
+        (host only)
+      parameters:
+      - description: Room ID (UUID)
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Participant ID (UUID)
+        in: path
+        name: pid
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Participant admitted successfully
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid room or participant ID
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: User not authenticated
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: User is not the host
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Failed to admit participant
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Admit a waiting participant
+      tags:
+      - Participants
+  /rooms/{id}/participants/{pid}/deny:
+    post:
+      consumes:
+      - application/json
+      description: Rejects a participant from waiting room (host only)
+      parameters:
+      - description: Room ID (UUID)
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Participant ID (UUID)
+        in: path
+        name: pid
+        required: true
+        type: string
+      - description: Reason for denial
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.DenyParticipantRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Participant denied
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid room or participant ID
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: User not authenticated
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: User is not the host
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Failed to deny participant
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Deny a waiting participant
+      tags:
+      - Participants
+  /rooms/{id}/participants/waiting:
+    get:
+      description: Gets a list of participants waiting for host approval (host only)
+      parameters:
+      - description: Room ID (UUID)
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: List of waiting participants
+          schema:
+            $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.ParticipantListResponse'
+        "400":
+          description: Invalid room ID
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: User not authenticated
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: User is not the host
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Failed to get waiting participants
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get waiting participants
       tags:
       - Participants
   /rooms/{id}/transfer-host:
