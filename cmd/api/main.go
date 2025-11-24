@@ -17,6 +17,8 @@ import (
 
 	"github.com/johnquangdev/meeting-assistant/internal/adapter/handler"
 	"github.com/johnquangdev/meeting-assistant/internal/adapter/repository"
+	aiuse "github.com/johnquangdev/meeting-assistant/internal/usecase/ai"
+	pkgai "github.com/johnquangdev/meeting-assistant/pkg/ai"
 	"github.com/johnquangdev/meeting-assistant/internal/infrastructure/cache"
 	"github.com/johnquangdev/meeting-assistant/internal/infrastructure/database"
 	"github.com/johnquangdev/meeting-assistant/internal/infrastructure/external/livekit"
@@ -91,10 +93,18 @@ func main() {
 	}
 	defer database.CloseDB(db)
 
-	// Run migrations
-	log.Println("🔄 Running database migrations...")
-	if err := database.AutoMigrate(db); err != nil {
-		log.Fatalf("Failed to run migrations: %v", err)
+	// Run AutoMigrate only when explicitly enabled in config.
+	// Production deployments should manage schema via sql-migrate.
+	if cfg.Database.AutoMigrate {
+		if cfg.Server.Environment == "production" {
+			log.Fatalf("AutoMigrate is enabled in production. Disable DB_AUTO_MIGRATE or manage schema with sql-migrate.")
+		}
+		log.Println("🔄 Running GORM AutoMigrate (development only) ...")
+		if err := database.AutoMigrate(db); err != nil {
+			log.Fatalf("Failed to run AutoMigrate: %v", err)
+		}
+	} else {
+		log.Println("🔄 Skipping GORM AutoMigrate; use sql-migrate for schema migrations in CI/CD/production")
 	}
 
 	// Initialize Redis
@@ -111,6 +121,15 @@ func main() {
 	sessionRepo := repository.NewSessionRepository(db)
 	roomRepo := repository.NewRoomRepository(db)
 	participantRepo := repository.NewParticipantRepository(db)
+
+	// Initialize AI repository and clients
+	log.Println("🤖 Initializing AI components...")
+	aiRepo := repository.NewAIRepository(db)
+	asmClient := pkgai.NewAssemblyAIClient(&cfg.Assembly)
+	groqClient := pkgai.NewGroqClient(&cfg.Groq)
+	aiService := aiuse.NewAIService(aiRepo, asmClient, groqClient, cfg)
+	aiController := handler.NewAIController(aiService)
+	aiWebhookHandler := handler.NewAIWebhookHandler(aiService, cfg.Assembly.WebhookSecret)
 
 	// Initialize OAuth provider
 	log.Println("🔐 Initializing OAuth provider...")
@@ -183,7 +202,7 @@ func main() {
 	// Create Echo auth middleware from existing OAuth service
 	authEchoMW := httpmw.EchoAuth(oauthService)
 
-	router := handler.NewRouter(cfg, authHandler, roomHandler, webhookHandler, authEchoMW)
+	router := handler.NewRouter(cfg, authHandler, roomHandler, webhookHandler, aiWebhookHandler, aiController, authEchoMW)
 	router.Setup(e)
 
 	// Start server

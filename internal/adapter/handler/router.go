@@ -16,6 +16,8 @@ type Router struct {
 	authHandler    *Auth
 	roomHandler    *Room
 	webhookHandler *WebhookHandler
+	aiWebhookHandler *AIWebhookHandler
+	aiController     *AIController
 	authMW         echo.MiddlewareFunc
 	// Add more handlers here as needed
 	// recordingHandler *Recording
@@ -23,13 +25,15 @@ type Router struct {
 }
 
 // NewRouter creates a new router with all handlers
-func NewRouter(cfg *config.Config, authHandler *Auth, roomHandler *Room, webhookHandler *WebhookHandler, authMW echo.MiddlewareFunc) *Router {
+func NewRouter(cfg *config.Config, authHandler *Auth, roomHandler *Room, webhookHandler *WebhookHandler, aiWebhookHandler *AIWebhookHandler, aiController *AIController, authMW echo.MiddlewareFunc) *Router {
 	return &Router{
-		cfg:            cfg,
-		authHandler:    authHandler,
-		roomHandler:    roomHandler,
-		webhookHandler: webhookHandler,
-		authMW:         authMW,
+		cfg:              cfg,
+		authHandler:      authHandler,
+		roomHandler:      roomHandler,
+		webhookHandler:   webhookHandler,
+		aiWebhookHandler: aiWebhookHandler,
+		aiController:     aiController,
+		authMW:           authMW,
 	}
 }
 
@@ -48,6 +52,12 @@ func (rt *Router) Setup(e *echo.Echo) {
 	rt.setupAuthRoutes(v1)
 	rt.setupRoomRoutes(v1)
 	rt.setupWebhookRoutes(v1)
+	// AI endpoints
+	if rt.aiController != nil {
+		v1.POST("/meetings/:id/process-ai", rt.aiController.ProcessMeeting)
+	} else {
+		v1.POST("/meetings/:id/process-ai", rt.notImplemented)
+	}
 	// rt.setupRecordingRoutes(v1)
 	// rt.setupReportRoutes(v1)
 }
@@ -116,7 +126,6 @@ func (rt *Router) setupRoomRoutes(g *echo.Group) {
 		roomGroup.POST("/:id/participants/:pid/deny", rt.roomHandler.DenyParticipant)     // Deny participant
 		roomGroup.DELETE("/:id/participants/:pid", rt.roomHandler.RemoveParticipant)      // Remove participant
 		roomGroup.PATCH("/:id/host", rt.roomHandler.TransferHost)                         // Transfer host
-
 	} else {
 		// Placeholder routes when handler is not initialized
 		roomGroup.POST("", rt.notImplemented)
@@ -140,6 +149,13 @@ func (rt *Router) setupWebhookRoutes(g *echo.Group) {
 		webhookGroup.POST("/livekit", rt.webhookHandler.HandleLiveKitWebhook)
 	} else {
 		webhookGroup.POST("/livekit", rt.notImplemented)
+	}
+
+	// AssemblyAI webhook endpoint
+	if rt.aiWebhookHandler != nil {
+		webhookGroup.POST("/assemblyai", rt.aiWebhookHandler.HandleAssemblyAIWebhook)
+	} else {
+		webhookGroup.POST("/assemblyai", rt.notImplemented)
 	}
 }
 

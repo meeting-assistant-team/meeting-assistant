@@ -1,3 +1,7 @@
+-- +migrate Up
+-- Migration: 000004_create_participants_table
+-- Description: Create participants table, triggers and indexes
+
 -- Create participants table
 CREATE TABLE IF NOT EXISTS participants (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -33,24 +37,15 @@ CREATE INDEX IF NOT EXISTS idx_participants_joined ON participants(joined_at) WH
 CREATE INDEX IF NOT EXISTS idx_participants_role ON participants(role);
 CREATE INDEX IF NOT EXISTS idx_participants_room_status ON participants(room_id, status);
 
--- Trigger for updated_at
-CREATE TRIGGER update_participants_updated_at 
-    BEFORE UPDATE ON participants
-    FOR EACH ROW 
-    EXECUTE FUNCTION update_updated_at_column();
+-- +migrate Down
+-- Rollback participants table and related objects
+-- Drop indexes
+DROP INDEX IF EXISTS idx_participants_room_status;
+DROP INDEX IF EXISTS idx_participants_role;
+DROP INDEX IF EXISTS idx_participants_joined;
+DROP INDEX IF EXISTS idx_participants_status;
+DROP INDEX IF EXISTS idx_participants_user;
+DROP INDEX IF EXISTS idx_participants_room;
 
--- Function to calculate participant duration
-CREATE OR REPLACE FUNCTION calculate_participant_duration()
-RETURNS TRIGGER AS $$
-BEGIN
-    IF NEW.left_at IS NOT NULL AND NEW.joined_at IS NOT NULL THEN
-        NEW.duration = EXTRACT(EPOCH FROM (NEW.left_at - NEW.joined_at))::INT;
-    END IF;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER trigger_calculate_participant_duration
-    BEFORE UPDATE ON participants
-    FOR EACH ROW 
-    EXECUTE FUNCTION calculate_participant_duration();
+-- Drop table
+DROP TABLE IF EXISTS participants;

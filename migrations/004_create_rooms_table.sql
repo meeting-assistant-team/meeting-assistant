@@ -1,3 +1,7 @@
+-- +migrate Up
+-- Migration: 000003_create_rooms_table
+-- Description: Create rooms table and related triggers/indexes
+
 -- Create rooms table
 CREATE TABLE IF NOT EXISTS rooms (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -44,24 +48,8 @@ CREATE INDEX IF NOT EXISTS idx_rooms_livekit ON rooms(livekit_room_name);
 CREATE INDEX IF NOT EXISTS idx_rooms_tags ON rooms USING GIN (tags);
 CREATE INDEX IF NOT EXISTS idx_rooms_created ON rooms(created_at DESC);
 
--- Trigger for updated_at
-CREATE TRIGGER update_rooms_updated_at 
-    BEFORE UPDATE ON rooms
-    FOR EACH ROW 
-    EXECUTE FUNCTION update_updated_at_column();
+-- +migrate Down
+-- Rollback rooms table and related objects
 
--- Function to calculate room duration on meeting end
-CREATE OR REPLACE FUNCTION calculate_room_duration()
-RETURNS TRIGGER AS $$
-BEGIN
-    IF NEW.status = 'ended' AND OLD.status = 'active' AND NEW.ended_at IS NOT NULL AND NEW.started_at IS NOT NULL THEN
-        NEW.duration = EXTRACT(EPOCH FROM (NEW.ended_at - NEW.started_at))::INT;
-    END IF;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER trigger_calculate_room_duration
-    BEFORE UPDATE ON rooms
-    FOR EACH ROW 
-    EXECUTE FUNCTION calculate_room_duration();
+-- Drop table
+DROP TABLE IF EXISTS rooms;

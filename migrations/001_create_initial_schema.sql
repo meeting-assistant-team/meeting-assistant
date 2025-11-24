@@ -3,19 +3,6 @@
 -- Created: 2024-11-05
 -- Description: Create core tables for meeting assistant system
 
--- Enable UUID extension
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-CREATE EXTENSION IF NOT EXISTS "pgcrypto";
-
--- Helper function for updated_at
-CREATE OR REPLACE FUNCTION update_updated_at_column()
-RETURNS TRIGGER AS $$
-BEGIN
-    NEW.updated_at = NOW();
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
 -- ============================================================================
 -- USERS TABLE
 -- ============================================================================
@@ -59,12 +46,6 @@ CREATE UNIQUE INDEX idx_users_email ON users(LOWER(email));
 CREATE INDEX idx_users_oauth ON users(oauth_provider, oauth_id) WHERE oauth_provider IS NOT NULL;
 CREATE INDEX idx_users_role ON users(role) WHERE is_active = true;
 CREATE INDEX idx_users_created ON users(created_at DESC);
-
--- Trigger
-CREATE TRIGGER update_users_updated_at 
-    BEFORE UPDATE ON users
-    FOR EACH ROW 
-    EXECUTE FUNCTION update_updated_at_column();
 
 -- ============================================================================
 -- ROOMS TABLE
@@ -135,29 +116,6 @@ CREATE INDEX idx_rooms_livekit ON rooms(livekit_room_name);
 CREATE INDEX idx_rooms_tags ON rooms USING GIN (tags);
 CREATE INDEX idx_rooms_active ON rooms(status) WHERE status = 'active';
 
--- Triggers
-CREATE TRIGGER update_rooms_updated_at 
-    BEFORE UPDATE ON rooms
-    FOR EACH ROW 
-    EXECUTE FUNCTION update_updated_at_column();
-
--- Calculate duration on meeting end
-CREATE OR REPLACE FUNCTION calculate_room_duration()
-RETURNS TRIGGER AS $$
-BEGIN
-    IF NEW.status = 'ended' AND OLD.status = 'active' AND NEW.started_at IS NOT NULL THEN
-        NEW.ended_at = COALESCE(NEW.ended_at, NOW());
-        NEW.duration = EXTRACT(EPOCH FROM (NEW.ended_at - NEW.started_at))::INT;
-    END IF;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER trigger_calculate_room_duration
-    BEFORE UPDATE ON rooms
-    FOR EACH ROW 
-    EXECUTE FUNCTION calculate_room_duration();
-
 -- ============================================================================
 -- PARTICIPANTS TABLE
 -- ============================================================================
@@ -213,74 +171,10 @@ CREATE INDEX idx_participants_status ON participants(status);
 CREATE INDEX idx_participants_joined ON participants(joined_at) WHERE joined_at IS NOT NULL;
 CREATE INDEX idx_participants_room_status ON participants(room_id, status);
 
--- Trigger
-CREATE TRIGGER update_participants_updated_at 
-    BEFORE UPDATE ON participants
-    FOR EACH ROW 
-    EXECUTE FUNCTION update_updated_at_column();
-
--- Calculate participant duration
-CREATE OR REPLACE FUNCTION calculate_participant_duration()
-RETURNS TRIGGER AS $$
-BEGIN
-    IF NEW.left_at IS NOT NULL AND NEW.joined_at IS NOT NULL THEN
-        NEW.duration = EXTRACT(EPOCH FROM (NEW.left_at - NEW.joined_at))::INT;
-    END IF;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER trigger_calculate_participant_duration
-    BEFORE UPDATE ON participants
-    FOR EACH ROW 
-    EXECUTE FUNCTION calculate_participant_duration();
-
--- Update room participant count
-CREATE OR REPLACE FUNCTION update_room_participant_count()
-RETURNS TRIGGER AS $$
-BEGIN
-    IF TG_OP = 'INSERT' AND NEW.status = 'joined' THEN
-        UPDATE rooms SET current_participants = current_participants + 1 WHERE id = NEW.room_id;
-    ELSIF TG_OP = 'UPDATE' THEN
-        IF OLD.status != 'joined' AND NEW.status = 'joined' THEN
-            UPDATE rooms SET current_participants = current_participants + 1 WHERE id = NEW.room_id;
-        ELSIF OLD.status = 'joined' AND NEW.status != 'joined' THEN
-            UPDATE rooms SET current_participants = GREATEST(current_participants - 1, 0) WHERE id = NEW.room_id;
-        END IF;
-    ELSIF TG_OP = 'DELETE' AND OLD.status = 'joined' THEN
-        UPDATE rooms SET current_participants = GREATEST(current_participants - 1, 0) WHERE id = OLD.room_id;
-    END IF;
-    RETURN COALESCE(NEW, OLD);
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER trigger_update_room_participant_count
-    AFTER INSERT OR UPDATE OR DELETE ON participants
-    FOR EACH ROW 
-    EXECUTE FUNCTION update_room_participant_count();
-
 -- +migrate Down
 -- Rollback initial schema
-
--- Drop triggers
-DROP TRIGGER IF EXISTS trigger_update_room_participant_count ON participants;
-DROP TRIGGER IF EXISTS trigger_calculate_participant_duration ON participants;
-DROP TRIGGER IF EXISTS update_participants_updated_at ON participants;
-DROP TRIGGER IF EXISTS trigger_calculate_room_duration ON rooms;
-DROP TRIGGER IF EXISTS update_rooms_updated_at ON rooms;
-DROP TRIGGER IF EXISTS update_users_updated_at ON users;
-
--- Drop functions
-DROP FUNCTION IF EXISTS update_room_participant_count();
-DROP FUNCTION IF EXISTS calculate_participant_duration();
-DROP FUNCTION IF EXISTS calculate_room_duration();
-DROP FUNCTION IF EXISTS update_updated_at_column();
 
 -- Drop tables (in reverse order of dependencies)
 DROP TABLE IF EXISTS participants;
 DROP TABLE IF EXISTS rooms;
 DROP TABLE IF EXISTS users;
-
--- Drop extensions
-DROP EXTENSION IF EXISTS "pgcrypto";
-DROP EXTENSION IF EXISTS "uuid-ossp";

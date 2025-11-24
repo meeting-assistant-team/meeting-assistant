@@ -51,12 +51,6 @@ CREATE INDEX idx_summaries_transcript ON meeting_summaries(transcript_id) WHERE 
 CREATE INDEX idx_summaries_sentiment ON meeting_summaries(overall_sentiment) WHERE overall_sentiment IS NOT NULL;
 CREATE INDEX idx_summaries_created ON meeting_summaries(created_at DESC);
 
--- Trigger
-CREATE TRIGGER update_summaries_updated_at 
-    BEFORE UPDATE ON meeting_summaries
-    FOR EACH ROW 
-    EXECUTE FUNCTION update_updated_at_column();
-
 -- ============================================================================
 -- ACTION_ITEMS TABLE
 -- ============================================================================
@@ -127,30 +121,6 @@ CREATE INDEX idx_action_items_tags ON action_items USING GIN (tags);
 CREATE INDEX idx_action_items_assigned_pending ON action_items(assigned_to, status) 
     WHERE status IN ('pending', 'in_progress');
 
--- Trigger
-CREATE TRIGGER update_action_items_updated_at 
-    BEFORE UPDATE ON action_items
-    FOR EACH ROW 
-    EXECUTE FUNCTION update_updated_at_column();
-
--- Auto-set completed_at when status changes to completed
-CREATE OR REPLACE FUNCTION set_action_item_completed_at()
-RETURNS TRIGGER AS $$
-BEGIN
-    IF NEW.status = 'completed' AND OLD.status != 'completed' THEN
-        NEW.completed_at = NOW();
-    ELSIF NEW.status != 'completed' AND OLD.status = 'completed' THEN
-        NEW.completed_at = NULL;
-    END IF;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER trigger_set_action_item_completed_at
-    BEFORE UPDATE ON action_items
-    FOR EACH ROW 
-    EXECUTE FUNCTION set_action_item_completed_at();
-
 -- ============================================================================
 -- PARTICIPANT_REPORTS TABLE
 -- ============================================================================
@@ -204,23 +174,8 @@ CREATE INDEX idx_reports_participant ON participant_reports(participant_id);
 CREATE INDEX idx_reports_summary ON participant_reports(summary_id) WHERE summary_id IS NOT NULL;
 CREATE INDEX idx_reports_engagement ON participant_reports(engagement_score) WHERE engagement_score IS NOT NULL;
 
--- Trigger
-CREATE TRIGGER update_reports_updated_at 
-    BEFORE UPDATE ON participant_reports
-    FOR EACH ROW 
-    EXECUTE FUNCTION update_updated_at_column();
-
 -- +migrate Down
 -- Rollback AI summaries and action items tables
-
--- Drop triggers
-DROP TRIGGER IF EXISTS update_reports_updated_at ON participant_reports;
-DROP TRIGGER IF EXISTS trigger_set_action_item_completed_at ON action_items;
-DROP TRIGGER IF EXISTS update_action_items_updated_at ON action_items;
-DROP TRIGGER IF EXISTS update_summaries_updated_at ON meeting_summaries;
-
--- Drop functions
-DROP FUNCTION IF EXISTS set_action_item_completed_at();
 
 -- Drop tables
 DROP TABLE IF EXISTS participant_reports;
