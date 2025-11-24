@@ -231,6 +231,8 @@ __marimo__/
 *.dylib
 *.test
 *.out
+/api
+api
 
 # Go workspace file
 go.work

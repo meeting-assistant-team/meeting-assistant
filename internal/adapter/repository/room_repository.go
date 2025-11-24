@@ -174,10 +174,14 @@ func (r *roomRepository) FindScheduledRooms(ctx context.Context) ([]*entities.Ro
 
 // IncrementParticipantCount increases the participant count
 func (r *roomRepository) IncrementParticipantCount(ctx context.Context, roomID uuid.UUID) error {
+	// Update current_participants and ensure updated_at is set
 	return r.db.WithContext(ctx).
 		Model(&entities.Room{}).
 		Where("id = ?", roomID).
-		UpdateColumn("current_participants", gorm.Expr("current_participants + 1")).
+		UpdateColumns(map[string]interface{}{
+			"current_participants": gorm.Expr("current_participants + 1"),
+			"updated_at":           gorm.Expr("NOW()"),
+		}).
 		Error
 }
 
@@ -186,7 +190,10 @@ func (r *roomRepository) DecrementParticipantCount(ctx context.Context, roomID u
 	return r.db.WithContext(ctx).
 		Model(&entities.Room{}).
 		Where("id = ? AND current_participants > 0", roomID).
-		UpdateColumn("current_participants", gorm.Expr("current_participants - 1")).
+		UpdateColumns(map[string]interface{}{
+			"current_participants": gorm.Expr("current_participants - 1"),
+			"updated_at":           gorm.Expr("NOW()"),
+		}).
 		Error
 }
 
@@ -201,12 +208,16 @@ func (r *roomRepository) UpdateStatus(ctx context.Context, roomID uuid.UUID, sta
 
 // EndRoom marks a room as ended and calculates duration
 func (r *roomRepository) EndRoom(ctx context.Context, roomID uuid.UUID) error {
+	// When ending a room, also calculate duration on the application side
+	// because DB triggers may be removed. Calculate duration in seconds
+	// only if started_at is not null.
 	return r.db.WithContext(ctx).
 		Model(&entities.Room{}).
 		Where("id = ?", roomID).
 		Updates(map[string]interface{}{
 			"status":   entities.RoomStatusEnded,
 			"ended_at": gorm.Expr("NOW()"),
+			"duration": gorm.Expr("CASE WHEN started_at IS NOT NULL THEN EXTRACT(EPOCH FROM (NOW() - started_at))::INT ELSE NULL END"),
 		}).
 		Error
 }

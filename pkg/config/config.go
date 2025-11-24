@@ -18,6 +18,8 @@ type Config struct {
 	JWT      JWTConfig
 	Storage  StorageConfig
 	LiveKit  LiveKitConfig
+	Assembly AssemblyAIConfig
+	Groq     GroqConfig
 }
 
 // ServerConfig holds server configuration
@@ -39,6 +41,9 @@ type DatabaseConfig struct {
 	SSLMode  string `envconfig:"DB_SSLMODE"`
 	MaxConns int    `envconfig:"DB_MAX_CONNS"`
 	MinConns int    `envconfig:"DB_MIN_CONNS"`
+	// AutoMigrate controls whether GORM AutoMigrate is run at startup.
+	// When using sql-migrate for schema management, keep this false in production.
+	AutoMigrate bool `envconfig:"DB_AUTO_MIGRATE" default:"false"`
 }
 
 // RedisConfig holds Redis configuration
@@ -86,6 +91,19 @@ type LiveKitConfig struct {
 	APISecret     string `envconfig:"LIVEKIT_API_SECRET" default:"secret"`
 	WebhookSecret string `envconfig:"LIVEKIT_WEBHOOK_SECRET"`           // Secret for validating webhooks from LiveKit
 	UseMock       bool   `envconfig:"LIVEKIT_USE_MOCK" default:"false"` // Use mock mode for testing without real LiveKit server
+}
+
+// AssemblyAIConfig holds AssemblyAI related configuration
+type AssemblyAIConfig struct {
+	APIKey         string `envconfig:"ASSEMBLYAI_API_KEY"`
+	WebhookSecret  string `envconfig:"ASSEMBLYAI_WEBHOOK_SECRET"`
+	WebhookBaseURL string `envconfig:"ASSEMBLYAI_WEBHOOK_BASE_URL"`
+}
+
+// GroqConfig holds Groq API config
+type GroqConfig struct {
+	APIKey  string `envconfig:"GROQ_API_KEY"`
+	BaseURL string `envconfig:"GROQ_API_URL"`
 }
 
 // Load loads configuration from environment variables
