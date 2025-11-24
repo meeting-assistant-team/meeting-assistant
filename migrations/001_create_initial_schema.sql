@@ -1,7 +1,4 @@
 -- +migrate Up
--- Migration: 001_create_initial_schema
--- Created: 2024-11-05
--- Description: Create core tables for meeting assistant system
 
 -- ============================================================================
 -- USERS TABLE

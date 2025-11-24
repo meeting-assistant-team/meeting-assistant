@@ -1,7 +1,4 @@
 -- +migrate Up
--- Migration: 002_create_recordings_and_transcripts
--- Created: 2024-11-05
--- Description: Create tables for recordings and transcriptions
 
 -- ============================================================================
 -- RECORDINGS TABLE

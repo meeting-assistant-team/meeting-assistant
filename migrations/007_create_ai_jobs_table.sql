@@ -1,6 +1,4 @@
 -- +migrate Up
--- Migration: 006_create_ai_jobs_table
--- Description: Create ai_jobs table for tracking AI processing jobs
 
 CREATE TABLE IF NOT EXISTS ai_jobs (
     id VARCHAR PRIMARY KEY,

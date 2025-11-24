@@ -1,7 +1,4 @@
 -- +migrate Up
--- Migration: 004_create_supporting_tables
--- Created: 2024-11-05
--- Description: Create supporting tables for sessions, invitations, and notifications
 
 -- ============================================================================
 -- SESSIONS TABLE

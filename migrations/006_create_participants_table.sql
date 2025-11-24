@@ -1,6 +1,4 @@
 -- +migrate Up
--- Migration: 000004_create_participants_table
--- Description: Create participants table, triggers and indexes
 
 -- Create participants table
 CREATE TABLE IF NOT EXISTS participants (
