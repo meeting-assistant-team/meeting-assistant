@@ -1,6 +1,4 @@
 -- +migrate Up
--- Migration: 000003_create_rooms_table
--- Description: Create rooms table and related triggers/indexes
 
 -- Create rooms table
 CREATE TABLE IF NOT EXISTS rooms (

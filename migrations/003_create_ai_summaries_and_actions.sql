@@ -1,7 +1,4 @@
 -- +migrate Up
--- Migration: 003_create_ai_summaries_and_actions
--- Created: 2024-11-05
--- Description: Create tables for AI-generated summaries and action items
 
 -- ============================================================================
 -- MEETING_SUMMARIES TABLE
