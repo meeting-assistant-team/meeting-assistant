@@ -58,12 +58,6 @@ CREATE INDEX idx_recordings_livekit ON recordings(livekit_recording_id) WHERE li
 CREATE INDEX idx_recordings_started ON recordings(started_at DESC);
 CREATE INDEX idx_recordings_started_by ON recordings(started_by) WHERE started_by IS NOT NULL;
 
--- Trigger
-CREATE TRIGGER update_recordings_updated_at 
-    BEFORE UPDATE ON recordings
-    FOR EACH ROW 
-    EXECUTE FUNCTION update_updated_at_column();
-
 -- ============================================================================
 -- TRANSCRIPTS TABLE
 -- ============================================================================
@@ -112,18 +106,8 @@ CREATE INDEX idx_transcripts_language ON transcripts(language);
 CREATE INDEX idx_transcripts_segments ON transcripts USING GIN (segments);
 CREATE INDEX idx_transcripts_text_search ON transcripts USING GIN (to_tsvector('english', text));
 
--- Trigger
-CREATE TRIGGER update_transcripts_updated_at 
-    BEFORE UPDATE ON transcripts
-    FOR EACH ROW 
-    EXECUTE FUNCTION update_updated_at_column();
-
 -- +migrate Down
 -- Rollback recordings and transcripts tables
-
--- Drop triggers
-DROP TRIGGER IF EXISTS update_transcripts_updated_at ON transcripts;
-DROP TRIGGER IF EXISTS update_recordings_updated_at ON recordings;
 
 -- Drop tables
 DROP TABLE IF EXISTS transcripts;
