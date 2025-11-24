@@ -5,11 +5,12 @@ import (
 	"log"
 	"time"
 
+	migrate "github.com/rubenv/sql-migrate"
+
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
-	"github.com/johnquangdev/meeting-assistant/internal/domain/entities"
 	"github.com/johnquangdev/meeting-assistant/pkg/config"
 )
 
@@ -57,20 +58,24 @@ func NewPostgresDB(cfg *config.Config) (*gorm.DB, error) {
 
 // AutoMigrate runs database migrations
 func AutoMigrate(db *gorm.DB) error {
-	log.Println("🔄 Running database migrations...")
+	// Use rubenv/sql-migrate to apply migrations from the `migrations/` directory.
+	log.Println("🔄 Applying migrations from migrations/ using sql-migrate...")
 
-	err := db.AutoMigrate(
-		&entities.User{},
-		&entities.Session{},
-		&entities.Room{},
-		&entities.Participant{},
-	)
-
-	if err != nil {
-		return fmt.Errorf("failed to run migrations: %w", err)
+	migrations := &migrate.FileMigrationSource{
+		Dir: "migrations",
 	}
 
-	log.Println("✅ Database migrations completed successfully")
+	sqlDB, err := db.DB()
+	if err != nil {
+		return fmt.Errorf("failed to get db connection during migrate up, error: %v", err)
+	}
+
+	n, err := migrate.Exec(sqlDB, "postgres", migrations, migrate.Up)
+	if err != nil {
+		return fmt.Errorf("failed to apply migration, error: %v", err)
+	}
+
+	log.Printf("✅ Applied %d migrations!\n", n)
 	return nil
 }
 
