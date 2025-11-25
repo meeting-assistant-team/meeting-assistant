@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+
+	"github.com/johnquangdev/meeting-assistant/errors"
 )
 
 // RespondJSON sends a JSON response with the given status code and data
@@ -18,18 +20,14 @@ func RespondJSON(w http.ResponseWriter, status int, data interface{}) {
 
 // RespondError sends a JSON error response with the given status code and message
 func RespondError(w http.ResponseWriter, status int, message string, err error) {
-	response := map[string]interface{}{
-		"error":  message,
-		"status": status,
+	appErr := errors.AppError{
+		HTTPCode: status,
+		Message:  message,
+		Raw:      err,
 	}
-
-	if err != nil {
-		response["details"] = err.Error()
-	}
-
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	if encErr := json.NewEncoder(w).Encode(response); encErr != nil {
+	if encErr := json.NewEncoder(w).Encode(appErr); encErr != nil {
 		// Fallback to plain text if JSON encoding fails
 		http.Error(w, message, status)
 	}

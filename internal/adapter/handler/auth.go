@@ -5,6 +5,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 
+	"github.com/johnquangdev/meeting-assistant/errors"
 	_ "github.com/johnquangdev/meeting-assistant/internal/adapter/dto/auth" // for swagger
 	"github.com/johnquangdev/meeting-assistant/internal/adapter/presenter"
 	authUsecase "github.com/johnquangdev/meeting-assistant/internal/usecase/auth"
@@ -35,10 +36,7 @@ func (h *Auth) GoogleLogin(c echo.Context) error {
 
 	authURL, err := h.oauthService.GetGoogleAuthURL(ctx)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]interface{}{
-			"error":   "Failed to generate auth URL",
-			"details": err.Error(),
-		})
+		return c.JSON(errors.ErrInternal(err).HTTPCode, errors.ErrInternal(err))
 	}
 
 	// Redirect to Google OAuth
@@ -64,9 +62,7 @@ func (h *Auth) GoogleCallback(c echo.Context) error {
 	state := c.QueryParam("state")
 
 	if code == "" || state == "" {
-		return c.JSON(http.StatusBadRequest, map[string]interface{}{
-			"error": "Missing code or state parameter",
-		})
+		return c.JSON(errors.ErrInvalidArgument("Missing code or state parameter").HTTPCode, errors.ErrInvalidArgument("Missing code or state parameter"))
 	}
 
 	req := &authUsecase.GoogleCallbackRequest{
@@ -76,10 +72,7 @@ func (h *Auth) GoogleCallback(c echo.Context) error {
 
 	usecaseResp, err := h.oauthService.HandleGoogleCallback(ctx, req)
 	if err != nil {
-		return c.JSON(http.StatusUnauthorized, map[string]interface{}{
-			"error":   "Authentication failed",
-			"details": err.Error(),
-		})
+		return c.JSON(errors.ErrUnauthenticated().HTTPCode, errors.ErrUnauthenticated().WithDetail("error", err.Error()))
 	}
 
 	// Convert usecase response to DTO
@@ -106,24 +99,16 @@ func (h *Auth) RefreshToken(c echo.Context) error {
 	}
 
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]interface{}{
-			"error":   "Invalid request body",
-			"details": err.Error(),
-		})
+		return c.JSON(errors.ErrInvalidArgument("Invalid request body").HTTPCode, errors.ErrInvalidArgument("Invalid request body").WithDetail("error", err.Error()))
 	}
 
 	if req.RefreshToken == "" {
-		return c.JSON(http.StatusBadRequest, map[string]interface{}{
-			"error": "Missing refresh token",
-		})
+		return c.JSON(errors.ErrInvalidArgument("Missing refresh token").HTTPCode, errors.ErrInvalidArgument("Missing refresh token"))
 	}
 
 	usecaseResp, err := h.oauthService.RefreshAccessToken(ctx, req.RefreshToken)
 	if err != nil {
-		return c.JSON(http.StatusUnauthorized, map[string]interface{}{
-			"error":   "Failed to refresh token",
-			"details": err.Error(),
-		})
+		return c.JSON(errors.ErrUnauthenticated().HTTPCode, errors.ErrUnauthenticated().WithDetail("error", err.Error()))
 	}
 
 	// Convert usecase response to DTO (no refresh token in response)
@@ -150,16 +135,11 @@ func (h *Auth) Logout(c echo.Context) error {
 	}
 
 	if err := c.Bind(&req); err != nil || req.RefreshToken == "" {
-		return c.JSON(http.StatusBadRequest, map[string]interface{}{
-			"error": "Missing refresh token",
-		})
+		return c.JSON(errors.ErrInvalidArgument("Missing refresh token").HTTPCode, errors.ErrInvalidArgument("Missing refresh token"))
 	}
 
 	if err := h.oauthService.Logout(ctx, req.RefreshToken); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]interface{}{
-			"error":   "Failed to logout",
-			"details": err.Error(),
-		})
+		return c.JSON(errors.ErrInternal(err).HTTPCode, errors.ErrInternal(err))
 	}
 
 	return c.JSON(http.StatusOK, map[string]string{
@@ -195,17 +175,12 @@ func (h *Auth) Me(c echo.Context) error {
 	}
 
 	if token == "" {
-		return c.JSON(http.StatusUnauthorized, map[string]interface{}{
-			"error": "Missing authorization token",
-		})
+		return c.JSON(errors.ErrUnauthenticated().HTTPCode, errors.ErrUnauthenticated().WithDetail("error", "Missing authorization token"))
 	}
 
 	user, err := h.oauthService.ValidateSession(ctx, token)
 	if err != nil {
-		return c.JSON(http.StatusUnauthorized, map[string]interface{}{
-			"error":   "Invalid session",
-			"details": err.Error(),
-		})
+		return c.JSON(errors.ErrUnauthenticated().HTTPCode, errors.ErrUnauthenticated().WithDetail("error", err.Error()))
 	}
 
 	// Convert entity to DTO
