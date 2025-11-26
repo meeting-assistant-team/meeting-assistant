@@ -385,15 +385,14 @@ func (h *Room) GetParticipants(c echo.Context) error {
 		})
 	}
 
-	return c.JSON(errors.HTTPStatusOK("participants retrieved successfully").HTTPCode, presenter.ToParticipantListResponse(participants))
+	return c.JSON(http.StatusOK, presenter.ToParticipantListResponse(participants))
 }
 
-<<<<<<< Updated upstream
-=======
-// GetWaitingParticipants handles GET /rooms/:id/participants/waiting
-// @Summary      Get waiting participants
-// @Description  Retrieves all participants waiting for host approval (host only)
-// @Tags         Rooms
+// RemoveParticipant handles DELETE /rooms/:id/participants/:pid
+// @Summary      Remove a participant
+// @Description  Removes a participant from the room (host/co-host only)
+// @Tags         Participants
+// @Accept       json
 // @Produce      json
 // @Security     BearerAuth
 // @Param        id   path      string  true  "Room ID (UUID)"
@@ -406,7 +405,18 @@ func (h *Room) GetParticipants(c echo.Context) error {
 func (h *Room) GetWaitingParticipants(c echo.Context) error {
 	roomID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		return c.JSON(errors.ErrInvalidArgument("Invalid room ID").HTTPCode, errors.ErrInvalidArgument("Invalid room ID").WithDetail("error", "Room ID must be a valid UUID"))
+		return c.JSON(http.StatusBadRequest, map[string]interface{}{
+			"error":   "invalid_room_id",
+			"message": "room ID must be a valid UUID",
+		})
+	}
+
+	participantID, err := uuid.Parse(c.Param("pid"))
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]interface{}{
+			"error":   "invalid_participant_id",
+			"message": "participant ID must be a valid UUID",
+		})
 	}
 
 	userID, ok := c.Get("user_id").(uuid.UUID)
@@ -414,56 +424,10 @@ func (h *Room) GetWaitingParticipants(c echo.Context) error {
 		return c.JSON(errors.ErrUnauthenticated().HTTPCode, errors.ErrUnauthenticated().WithDetail("error", "User not authenticated"))
 	}
 
-	participants, err := h.roomService.GetWaitingParticipants(c.Request().Context(), roomID, userID)
-	if err != nil {
-		appErr, ok := err.(errors.AppError)
-		if ok {
-			switch appErr.Code {
-			case errors.ErrorCode_PERMISSION_DENIED:
-				return c.JSON(appErr.HTTPCode, appErr)
-			case errors.ErrorCode_NOT_FOUND:
-				return c.JSON(appErr.HTTPCode, appErr)
-			default:
-				return c.JSON(appErr.HTTPCode, appErr)
-			}
-		}
-		return c.JSON(errors.ErrInternal(err).HTTPCode, errors.ErrInternal(err))
-	}
-
-	return c.JSON(errors.HTTPStatusOK("waiting participants retrieved successfully").HTTPCode, presenter.ToParticipantListResponse(participants))
-}
-
-// GetWaitingParticipants handles GET /rooms/:id/participants/waiting
-// @Summary      Get waiting participants
-// @Description  Retrieves all participants waiting for host approval (host only)
-// @Tags         Rooms
-// @Produce      json
-// @Security     BearerAuth
-// @Param        id   path      string  true  "Room ID (UUID)"
-// @Success      200  {object}  room.ParticipantListResponse  "List of waiting participants"
-// @Failure      400  {object}  map[string]interface{}  "Invalid room ID"
-// @Failure      401  {object}  map[string]interface{}  "User not authenticated"
-// @Failure      403  {object}  map[string]interface{}  "User is not the host"
-// @Failure      500  {object}  map[string]interface{}  "Failed to get waiting participants"
-// @Router       /rooms/{id}/participants/waiting [get]
-func (h *Room) GetWaitingParticipants(c echo.Context) error {
-	roomID, err := uuid.Parse(c.Param("id"))
-	if err != nil {
-		return c.JSON(errors.ErrInvalidArgument("Invalid room ID").HTTPCode, errors.ErrInvalidArgument("Invalid room ID").WithDetail("error", "Room ID must be a valid UUID"))
-	}
-
-	userID, ok := c.Get("user_id").(uuid.UUID)
-	if !ok {
-		return c.JSON(http.StatusUnauthorized, map[string]interface{}{
-			"error":   "unauthorized",
-			"message": "user not authenticated",
-		})
-	}
-
-	participants, err := h.roomService.GetWaitingParticipants(c.Request().Context(), roomID, userID)
-	if err != nil {
-		return c.JSON(int(errors.ErrorCode_INTERNAL), map[string]interface{}{
-			"error":   "failed_to_get_participants",
+	var req room.RemoveParticipantRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]interface{}{
+			"error":   "invalid_request",
 			"message": err.Error(),
 		})
 	}
