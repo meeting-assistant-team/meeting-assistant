@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 
+	"github.com/johnquangdev/meeting-assistant/errors"
 	roomUsecase "github.com/johnquangdev/meeting-assistant/internal/usecase/room"
 )
 
@@ -41,10 +42,7 @@ func (h *WebhookHandler) HandleLiveKitWebhook(c echo.Context) error {
 	bodyBytes, err := io.ReadAll(c.Request().Body)
 	if err != nil {
 		c.Logger().Errorf("❌ [WEBHOOK] Failed to read body: %v", err)
-		return c.JSON(http.StatusBadRequest, map[string]interface{}{
-			"error":   "failed_to_read_body",
-			"message": err.Error(),
-		})
+		return c.JSON(errors.ErrInvalidPayload().HTTPCode, errors.ErrInvalidPayload())
 	}
 
 	c.Logger().Infof("📥 [WEBHOOK] Raw body length: %d bytes", len(bodyBytes))
@@ -53,10 +51,7 @@ func (h *WebhookHandler) HandleLiveKitWebhook(c echo.Context) error {
 	var payload LiveKitWebhookPayload
 	if err := json.Unmarshal(bodyBytes, &payload); err != nil {
 		c.Logger().Errorf("❌ [WEBHOOK] Failed to unmarshal webhook payload: %v", err)
-		return c.JSON(http.StatusBadRequest, map[string]interface{}{
-			"error":   "invalid_payload",
-			"message": err.Error(),
-		})
+		return c.JSON(errors.ErrInvalidPayload().HTTPCode, errors.ErrInvalidPayload())
 	}
 
 	// Log webhook event for debugging

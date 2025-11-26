@@ -12,13 +12,10 @@ import (
 
 // Router holds all handlers
 type Router struct {
-	cfg            *config.Config
-	authHandler    *Auth
-	roomHandler    *Room
-	webhookHandler *WebhookHandler
-	aiWebhookHandler *AIWebhookHandler
-	aiController     *AIController
-	authMW         echo.MiddlewareFunc
+	cfg         *config.Config
+	authHandler *Auth
+	roomHandler *Room
+	authMW      echo.MiddlewareFunc
 	// Add more handlers here as needed
 	// recordingHandler *Recording
 	// reportHandler *Report
@@ -27,13 +24,10 @@ type Router struct {
 // NewRouter creates a new router with all handlers
 func NewRouter(cfg *config.Config, authHandler *Auth, roomHandler *Room, webhookHandler *WebhookHandler, aiWebhookHandler *AIWebhookHandler, aiController *AIController, authMW echo.MiddlewareFunc) *Router {
 	return &Router{
-		cfg:              cfg,
-		authHandler:      authHandler,
-		roomHandler:      roomHandler,
-		webhookHandler:   webhookHandler,
-		aiWebhookHandler: aiWebhookHandler,
-		aiController:     aiController,
-		authMW:           authMW,
+		cfg:         cfg,
+		authHandler: authHandler,
+		roomHandler: roomHandler,
+		authMW:      authMW,
 	}
 }
 
