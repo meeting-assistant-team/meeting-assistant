@@ -1,9 +1,8 @@
 package handler
 
 import (
-	"net/http"
-
 	"github.com/labstack/echo/v4"
+	"go.uber.org/zap"
 
 	"github.com/johnquangdev/meeting-assistant/errors"
 	aiuse "github.com/johnquangdev/meeting-assistant/internal/usecase/ai"
@@ -11,12 +10,13 @@ import (
 
 // AIController handles API endpoints that trigger AI processing
 type AIController struct {
-	svc aiuse.Service
+	svc    aiuse.Service
+	logger *zap.Logger
 }
 
 // NewAIController creates a new AI controller
-func NewAIController(svc aiuse.Service) *AIController {
-	return &AIController{svc: svc}
+func NewAIController(svc aiuse.Service, logger *zap.Logger) *AIController {
+	return &AIController{svc: svc, logger: logger}
 }
 
 // ProcessMeeting triggers AI processing for a meeting
@@ -26,14 +26,16 @@ func (ac *AIController) ProcessMeeting(c echo.Context) error {
 		RecordingURL string `json:"recording_url"`
 	}
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, errors.ErrInvalidPayload())
+		return HandleError(ac.logger, c, errors.ErrInvalidPayload())
 	}
 	if req.RecordingURL == "" {
-		return c.JSON(http.StatusBadRequest, errors.ErrMissingRecordingURL())
+		return HandleError(ac.logger, c, errors.ErrMissingRecordingURL())
 	}
 	if err := ac.svc.StartProcessing(c.Request().Context(), meetingID, req.RecordingURL); err != nil {
-		c.Logger().Errorf("failed to start processing: %v", err)
-		return c.JSON(http.StatusInternalServerError, errors.ErrProcessingFailed(err))
+		if ac.logger != nil {
+			ac.logger.Error("failed to start processing", zap.Error(err))
+		}
+		return HandleError(ac.logger, c, errors.ErrProcessingFailed(err))
 	}
-	return c.JSON(http.StatusAccepted, map[string]interface{}{"status": "processing_started"})
+	return HandleSuccess(ac.logger, c, map[string]interface{}{"status": "processing_started"})
 }

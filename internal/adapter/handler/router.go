@@ -12,13 +12,13 @@ import (
 
 // Router holds all handlers
 type Router struct {
-	cfg            *config.Config
-	authHandler    *Auth
-	roomHandler    *Room
-	webhookHandler *WebhookHandler
+	cfg              *config.Config
+	authHandler      *Auth
+	roomHandler      *Room
+	webhookHandler   *WebhookHandler
 	aiWebhookHandler *AIWebhookHandler
 	aiController     *AIController
-	authMW         echo.MiddlewareFunc
+	authMW           echo.MiddlewareFunc
 	// Add more handlers here as needed
 	// recordingHandler *Recording
 	// reportHandler *Report

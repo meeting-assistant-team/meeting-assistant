@@ -3,11 +3,12 @@ package handler
 import (
 	"encoding/json"
 	"io"
-	"net/http"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
+	"go.uber.org/zap"
 
+	"github.com/johnquangdev/meeting-assistant/errors"
 	roomUsecase "github.com/johnquangdev/meeting-assistant/internal/usecase/room"
 )
 
@@ -15,13 +16,15 @@ import (
 type WebhookHandler struct {
 	roomService   roomUsecase.Service
 	webhookSecret string
+	logger        *zap.Logger
 }
 
 // NewWebhookHandler creates a new webhook handler
-func NewWebhookHandler(roomService roomUsecase.Service, webhookSecret string) *WebhookHandler {
+func NewWebhookHandler(roomService roomUsecase.Service, webhookSecret string, logger *zap.Logger) *WebhookHandler {
 	return &WebhookHandler{
 		roomService:   roomService,
 		webhookSecret: webhookSecret,
+		logger:        logger,
 	}
 }
 
@@ -40,11 +43,10 @@ func (h *WebhookHandler) HandleLiveKitWebhook(c echo.Context) error {
 	// Read raw body for debugging
 	bodyBytes, err := io.ReadAll(c.Request().Body)
 	if err != nil {
-		c.Logger().Errorf("❌ [WEBHOOK] Failed to read body: %v", err)
-		return c.JSON(http.StatusBadRequest, map[string]interface{}{
-			"error":   "failed_to_read_body",
-			"message": err.Error(),
-		})
+		if h.logger != nil {
+			h.logger.Error("failed to read webhook body", zap.Error(err))
+		}
+		return HandleError(h.logger, c, errors.ErrInvalidPayload())
 	}
 
 	c.Logger().Infof("📥 [WEBHOOK] Raw body length: %d bytes", len(bodyBytes))
@@ -52,11 +54,10 @@ func (h *WebhookHandler) HandleLiveKitWebhook(c echo.Context) error {
 
 	var payload LiveKitWebhookPayload
 	if err := json.Unmarshal(bodyBytes, &payload); err != nil {
-		c.Logger().Errorf("❌ [WEBHOOK] Failed to unmarshal webhook payload: %v", err)
-		return c.JSON(http.StatusBadRequest, map[string]interface{}{
-			"error":   "invalid_payload",
-			"message": err.Error(),
-		})
+		if h.logger != nil {
+			h.logger.Error("failed to unmarshal webhook payload", zap.Error(err))
+		}
+		return HandleError(h.logger, c, errors.ErrInvalidPayload())
 	}
 
 	// Log webhook event for debugging
@@ -79,14 +80,15 @@ func (h *WebhookHandler) HandleLiveKitWebhook(c echo.Context) error {
 		c.Logger().Info("➡️  [WEBHOOK] Routing to handleRoomFinished")
 		return h.handleRoomFinished(c, &payload)
 	default:
-		// Log but don't fail on unknown events
-		c.Logger().Warnf("⚠️  [WEBHOOK] Unhandled webhook event: %s", payload.Event)
+		if h.logger != nil {
+			h.logger.Warn("unhandled webhook event", zap.String("event", payload.Event))
+		}
 	}
 
-	c.Logger().Info("✅ [WEBHOOK] === Webhook processed successfully ===")
-	return c.JSON(http.StatusOK, map[string]interface{}{
-		"status": "ok",
-	})
+	if h.logger != nil {
+		h.logger.Info("webhook processed successfully", zap.String("event", payload.Event))
+	}
+	return HandleSuccess(h.logger, c, map[string]interface{}{"status": "ok"})
 }
 
 // handleParticipantJoined handles when a participant joins
@@ -95,14 +97,18 @@ func (h *WebhookHandler) handleParticipantJoined(c echo.Context, payload *LiveKi
 
 	participantIdentity, ok := payload.Participant["identity"].(string)
 	if !ok {
-		c.Logger().Warn("⚠️  [WEBHOOK] participant identity not found in payload")
-		return c.JSON(http.StatusOK, map[string]interface{}{"status": "ok"})
+		if h.logger != nil {
+			h.logger.Warn("participant identity not found in payload")
+		}
+		return HandleSuccess(h.logger, c, map[string]interface{}{"status": "ok"})
 	}
 
 	roomName, ok := payload.Room["name"].(string)
 	if !ok {
-		c.Logger().Warn("⚠️  [WEBHOOK] room name not found in payload")
-		return c.JSON(http.StatusOK, map[string]interface{}{"status": "ok"})
+		if h.logger != nil {
+			h.logger.Warn("room name not found in payload")
+		}
+		return HandleSuccess(h.logger, c, map[string]interface{}{"status": "ok"})
 	}
 
 	c.Logger().Infof("👤 [WEBHOOK] Participant joined: %s in room %s", participantIdentity, roomName)
@@ -110,8 +116,10 @@ func (h *WebhookHandler) handleParticipantJoined(c echo.Context, payload *LiveKi
 	// Parse user ID from participant identity
 	userID, err := uuid.Parse(participantIdentity)
 	if err != nil {
-		c.Logger().Errorf("❌ [WEBHOOK] Failed to parse user ID '%s': %v", participantIdentity, err)
-		return c.JSON(http.StatusOK, map[string]interface{}{"status": "ok"})
+		if h.logger != nil {
+			h.logger.Error("failed to parse user id from participant identity", zap.String("identity", participantIdentity), zap.Error(err))
+		}
+		return HandleSuccess(h.logger, c, map[string]interface{}{"status": "ok"})
 	}
 
 	// Find room by LiveKit room name
@@ -120,22 +128,28 @@ func (h *WebhookHandler) handleParticipantJoined(c echo.Context, payload *LiveKi
 
 	roomEntity, err := h.roomService.GetRoomByLivekitName(ctx, roomName)
 	if err != nil {
-		c.Logger().Errorf("❌ [WEBHOOK] Failed to find room '%s': %v", roomName, err)
-		return c.JSON(http.StatusOK, map[string]interface{}{"status": "ok"})
+		if h.logger != nil {
+			h.logger.Error("failed to find room by livekit name", zap.String("room_name", roomName), zap.Error(err))
+		}
+		return HandleSuccess(h.logger, c, map[string]interface{}{"status": "ok"})
 	}
 
-	c.Logger().Infof("✅ [WEBHOOK] Found room ID: %s, Name: %s", roomEntity.ID, roomEntity.Name)
+	c.Logger().Infof("✅ [WEBHOOK] Found room ID: %s, Name: %s", roomEntity.ID.String(), roomEntity.Name)
 
 	// Update participant status to "joined" if not already
 	c.Logger().Infof("💾 [WEBHOOK] Updating participant status for user %s in room %s", userID, roomEntity.ID)
 
 	if err := h.roomService.UpdateParticipantStatus(ctx, roomEntity.ID, userID, "joined"); err != nil {
-		c.Logger().Errorf("❌ [WEBHOOK] Failed to update participant status: %v", err)
+		if h.logger != nil {
+			h.logger.Error("failed to update participant status", zap.Error(err))
+		}
 	} else {
-		c.Logger().Infof("✅ [WEBHOOK] Successfully updated participant status to 'joined'")
+		if h.logger != nil {
+			h.logger.Info("updated participant status to joined")
+		}
 	}
 
-	return c.JSON(http.StatusOK, map[string]interface{}{
+	return HandleSuccess(h.logger, c, map[string]interface{}{
 		"status": "ok",
 		"event":  "participant_joined",
 	})
@@ -147,14 +161,18 @@ func (h *WebhookHandler) handleParticipantLeft(c echo.Context, payload *LiveKitW
 
 	participantIdentity, ok := payload.Participant["identity"].(string)
 	if !ok {
-		c.Logger().Warn("⚠️  [WEBHOOK] participant identity not found in payload")
-		return c.JSON(http.StatusOK, map[string]interface{}{"status": "ok"})
+		if h.logger != nil {
+			h.logger.Warn("participant identity not found in payload")
+		}
+		return HandleSuccess(h.logger, c, map[string]interface{}{"status": "ok"})
 	}
 
 	roomName, ok := payload.Room["name"].(string)
 	if !ok {
-		c.Logger().Warn("⚠️  [WEBHOOK] room name not found in payload")
-		return c.JSON(http.StatusOK, map[string]interface{}{"status": "ok"})
+		if h.logger != nil {
+			h.logger.Warn("room name not found in payload")
+		}
+		return HandleSuccess(h.logger, c, map[string]interface{}{"status": "ok"})
 	}
 
 	c.Logger().Infof("👋 [WEBHOOK] Participant left: %s from room %s", participantIdentity, roomName)
@@ -162,33 +180,41 @@ func (h *WebhookHandler) handleParticipantLeft(c echo.Context, payload *LiveKitW
 	// Parse user ID from participant identity
 	userID, err := uuid.Parse(participantIdentity)
 	if err != nil {
-		c.Logger().Errorf("❌ [WEBHOOK] Failed to parse user ID '%s': %v", participantIdentity, err)
-		return c.JSON(http.StatusOK, map[string]interface{}{"status": "ok"})
+		if h.logger != nil {
+			h.logger.Error("failed to parse user id from participant identity", zap.String("identity", participantIdentity), zap.Error(err))
+		}
+		return HandleSuccess(h.logger, c, map[string]interface{}{"status": "ok"})
 	}
 
 	// Find room by LiveKit room name
 	ctx := c.Request().Context()
-	c.Logger().Infof("🔍 [WEBHOOK] Looking for room with livekit_room_name: %s", roomName)
+	c.Logger().Infof("�� [WEBHOOK] Looking for room with livekit_room_name: %s", roomName)
 
 	roomEntity, err := h.roomService.GetRoomByLivekitName(ctx, roomName)
 	if err != nil {
-		c.Logger().Errorf("❌ [WEBHOOK] Failed to find room '%s': %v", roomName, err)
-		return c.JSON(http.StatusOK, map[string]interface{}{"status": "ok"})
+		if h.logger != nil {
+			h.logger.Error("failed to find room by livekit name", zap.String("room_name", roomName), zap.Error(err))
+		}
+		return HandleSuccess(h.logger, c, map[string]interface{}{"status": "ok"})
 	}
 
 	c.Logger().Infof("✅ [WEBHOOK] Found room ID: %s, Name: %s", roomEntity.ID, roomEntity.Name)
 
 	// Auto leave room for the participant
-	c.Logger().Infof("💾 [WEBHOOK] Auto-leaving user %s from room %s", userID, roomEntity.ID)
+	c.Logger().Infof("💾 [WEBHOOK] Auto-leaving user %s from room %s", userID.String(), roomEntity.ID.String())
 
 	if err := h.roomService.LeaveRoom(ctx, roomEntity.ID, userID); err != nil {
-		c.Logger().Errorf("❌ [WEBHOOK] Failed to auto-leave room: %v", err)
+		if h.logger != nil {
+			h.logger.Error("failed to auto-leave room", zap.Error(err))
+		}
 		// Don't fail - participant might have already left via API
 	} else {
-		c.Logger().Infof("✅ [WEBHOOK] Auto-left user %s from room %s", userID, roomEntity.ID)
+		if h.logger != nil {
+			h.logger.Info("auto-left user from room", zap.String("user_id", userID.String()), zap.String("room_id", roomEntity.ID.String()))
+		}
 	}
 
-	return c.JSON(http.StatusOK, map[string]interface{}{
+	return HandleSuccess(h.logger, c, map[string]interface{}{
 		"status": "ok",
 		"event":  "participant_left",
 	})
@@ -202,17 +228,21 @@ func (h *WebhookHandler) handleRoomStarted(c echo.Context, payload *LiveKitWebho
 	ctx := c.Request().Context()
 	roomEntity, err := h.roomService.GetRoomByLivekitName(ctx, roomName)
 	if err != nil {
-		c.Logger().Errorf("Failed to find room: %v", err)
-		return c.JSON(http.StatusOK, map[string]interface{}{"status": "ok"})
+		if h.logger != nil {
+			h.logger.Error("failed to find room", zap.Error(err))
+		}
+		return HandleSuccess(h.logger, c, map[string]interface{}{"status": "ok"})
 	}
 
 	// Ensure room status is active
 	_, err = h.roomService.StartRoom(ctx, roomEntity.ID, roomEntity.HostID)
 	if err != nil {
-		c.Logger().Errorf("Failed to start room: %v", err)
+		if h.logger != nil {
+			h.logger.Error("failed to start room", zap.Error(err))
+		}
 	}
 
-	return c.JSON(http.StatusOK, map[string]interface{}{
+	return HandleSuccess(h.logger, c, map[string]interface{}{
 		"status": "ok",
 		"event":  "room_started",
 	})
@@ -226,18 +256,24 @@ func (h *WebhookHandler) handleRoomFinished(c echo.Context, payload *LiveKitWebh
 	ctx := c.Request().Context()
 	roomEntity, err := h.roomService.GetRoomByLivekitName(ctx, roomName)
 	if err != nil {
-		c.Logger().Errorf("Failed to find room: %v", err)
-		return c.JSON(http.StatusOK, map[string]interface{}{"status": "ok"})
+		if h.logger != nil {
+			h.logger.Error("failed to find room", zap.Error(err))
+		}
+		return HandleSuccess(h.logger, c, map[string]interface{}{"status": "ok"})
 	}
 
 	// Auto-end the room
 	if err := h.roomService.EndRoom(ctx, roomEntity.ID, roomEntity.HostID); err != nil {
-		c.Logger().Errorf("Failed to end room: %v", err)
+		if h.logger != nil {
+			h.logger.Error("failed to end room", zap.Error(err))
+		}
 	} else {
-		c.Logger().Infof("✅ Auto-ended room %s", roomEntity.ID)
+		if h.logger != nil {
+			h.logger.Info("auto-ended room", zap.String("room_id", roomEntity.ID.String()))
+		}
 	}
 
-	return c.JSON(http.StatusOK, map[string]interface{}{
+	return HandleSuccess(h.logger, c, map[string]interface{}{
 		"status": "ok",
 		"event":  "room_finished",
 	})
