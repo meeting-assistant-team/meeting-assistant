@@ -169,7 +169,10 @@ func (s *OAuthService) HandleGoogleCallback(ctx context.Context, req *GoogleCall
 	}
 
 	// Hash the refresh token before storing (we keep the raw token to return to client)
-	tokenHash := s.jwtManager.HashToken(refreshToken)
+	tokenHash, err := s.jwtManager.HashToken(refreshToken)
+	if err != nil {
+		return nil, fmt.Errorf("failed to hash refresh token: %w", err)
+	}
 
 	// Store hashed refresh token in session for revocation capability
 	session := entities.NewSession(
