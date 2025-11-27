@@ -338,19 +338,15 @@ func (h *Room) GetWaitingParticipants(c echo.Context) error {
 
 	userID, ok := c.Get("user_id").(uuid.UUID)
 	if !ok {
-		return c.JSON(errors.ErrUnauthenticated().HTTPCode, errors.ErrUnauthenticated().WithDetail("error", "User not authenticated"))
+		return h.handleError(c, errors.ErrUnauthenticated().WithDetail("error", "User not authenticated"))
 	}
 
 	participants, err := h.roomService.GetWaitingParticipants(c.Request().Context(), roomID, userID)
 	if err != nil {
-		appErr, ok := err.(errors.AppError)
-		if ok {
-			return c.JSON(appErr.HTTPCode, appErr)
-		}
-		return c.JSON(errors.ErrInternal(err).HTTPCode, errors.ErrInternal(err))
+		return h.handleError(c, err)
 	}
 
-	return c.JSON(errors.HTTPStatusOK("waiting participants retrieved successfully").HTTPCode, presenter.ToParticipantListResponse(participants))
+	return h.handleSuccess(c, presenter.ToParticipantListResponse(participants))
 }
 
 // RemoveParticipant handles DELETE /rooms/:id/participants/:pid
@@ -371,7 +367,7 @@ func (h *Room) GetWaitingParticipants(c echo.Context) error {
 func (h *Room) AdmitParticipant(c echo.Context) error {
 	roomID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		return c.JSON(errors.ErrInvalidArgument("Invalid room ID").HTTPCode, errors.ErrInvalidArgument("Invalid room ID").WithDetail("error", "Room ID must be a valid UUID"))
+		return h.handleError(c, errors.ErrInvalidArgument("Invalid room ID").WithDetail("error", "Room ID must be a valid UUID"))
 	}
 
 	participantID, err := uuid.Parse(c.Param("pid"))
@@ -421,33 +417,23 @@ func (h *Room) TransferHost(c echo.Context) error {
 
 	userID, ok := c.Get("user_id").(uuid.UUID)
 	if !ok {
-		return c.JSON(errors.ErrUnauthenticated().HTTPCode, errors.ErrUnauthenticated().WithDetail("error", "User not authenticated"))
+		return h.handleError(c, errors.ErrUnauthenticated().WithDetail("error", "User not authenticated"))
 	}
 
 	var req room.TransferHostRequest
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(errors.ErrInvalidArgument("Invalid request body").HTTPCode, errors.ErrInvalidArgument("Invalid request body").WithDetail("error", err.Error()))
+		return h.handleError(c, errors.ErrInvalidArgument("Invalid request body").WithDetail("error", err.Error()))
 	}
 
 	newHostID, err := uuid.Parse(req.NewHostID)
 	if err != nil {
-		return c.JSON(errors.ErrInvalidArgument("Invalid new host ID").HTTPCode, errors.ErrInvalidArgument("Invalid new host ID").WithDetail("error", "New host ID must be a valid UUID"))
+		return h.handleError(c, errors.ErrInvalidArgument("Invalid new host ID").WithDetail("error", "New host ID must be a valid UUID"))
 	}
 
 	if err := h.roomService.TransferHost(c.Request().Context(), roomID, userID, newHostID); err != nil {
-		appErr, ok := err.(errors.AppError)
-		if ok {
-			switch appErr.Code {
-			case errors.ErrorCode_PERMISSION_DENIED:
-				return c.JSON(appErr.HTTPCode, appErr)
-			case errors.ErrorCode_INVALID_ARGUMENT:
-				return c.JSON(appErr.HTTPCode, appErr)
-			}
-		}
-		return c.JSON(errors.ErrInternal(err).HTTPCode, errors.ErrInternal(err))
+		return h.handleError(c, err)
 	}
-
-	return c.JSON(int(errors.ErrorCode_HTTP_OK), errors.HTTPStatusOK("host transferred successfully"))
+	return h.handleSuccess(c, map[string]string{"message": "host transferred successfully"})
 }
 
 // RemoveParticipant handles DELETE /rooms/:id/participants/:pid
@@ -469,7 +455,7 @@ func (h *Room) TransferHost(c echo.Context) error {
 func (h *Room) RemoveParticipant(c echo.Context) error {
 	roomID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		return c.JSON(errors.ErrInvalidArgument("Invalid room ID").HTTPCode, errors.ErrInvalidArgument("Invalid room ID").WithDetail("error", "Room ID must be a valid UUID"))
+		return h.handleError(c, errors.ErrInvalidArgument("Invalid room ID").WithDetail("error", "Room ID must be a valid UUID"))
 	}
 
 	participantID, err := uuid.Parse(c.Param("pid"))
@@ -484,18 +470,13 @@ func (h *Room) RemoveParticipant(c echo.Context) error {
 
 	var req room.RemoveParticipantRequest
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(errors.ErrInvalidArgument("Invalid request body").HTTPCode, errors.ErrInvalidArgument("Invalid request body").WithDetail("error", err.Error()))
+		return h.handleError(c, errors.ErrInvalidArgument("Invalid request body").WithDetail("error", err.Error()))
 	}
 
 	if err := h.roomService.RemoveParticipant(c.Request().Context(), roomID, userID, participantID, req.Reason); err != nil {
-		appErr, ok := err.(errors.AppError)
-		if ok {
-			return c.JSON(appErr.HTTPCode, appErr)
-		}
-		return c.JSON(errors.ErrInternal(err).HTTPCode, errors.ErrInternal(err))
+		return h.handleError(c, err)
 	}
-
-	return c.JSON(errors.HTTPStatusOK("participant removed successfully").HTTPCode, map[string]interface{}{
+	return h.handleSuccess(c, map[string]interface{}{
 		"message": "participant removed successfully",
 	})
 }
@@ -517,17 +498,17 @@ func (h *Room) RemoveParticipant(c echo.Context) error {
 func (h *Room) DenyParticipant(c echo.Context) error {
 	roomID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		return c.JSON(errors.ErrInvalidArgument("Invalid room ID").HTTPCode, errors.ErrInvalidArgument("Invalid room ID").WithDetail("error", "Room ID must be a valid UUID"))
+		return h.handleError(c, errors.ErrInvalidArgument("Invalid room ID").WithDetail("error", "Room ID must be a valid UUID"))
 	}
 
 	participantID, err := uuid.Parse(c.Param("pid"))
 	if err != nil {
-		return c.JSON(errors.ErrInvalidArgument("Invalid participant ID").HTTPCode, errors.ErrInvalidArgument("Invalid participant ID").WithDetail("error", "Participant ID must be a valid UUID"))
+		return h.handleError(c, errors.ErrInvalidArgument("Invalid participant ID").WithDetail("error", "Participant ID must be a valid UUID"))
 	}
 
 	userID, ok := c.Get("user_id").(uuid.UUID)
 	if !ok {
-		return c.JSON(errors.ErrUnauthenticated().HTTPCode, errors.ErrUnauthenticated().WithDetail("error", "User not authenticated"))
+		return h.handleError(c, errors.ErrUnauthenticated().WithDetail("error", "User not authenticated"))
 	}
 
 	var req room.DenyParticipantRequest
