@@ -211,7 +211,8 @@ func (h *Room) JoinRoom(c echo.Context) error {
 	}
 
 	// User has joined successfully - generate LiveKit token
-	livekitToken, err := h.roomService.GenerateParticipantToken(c.Request().Context(), r, participant)
+	var livekitToken string
+	livekitToken, err = h.roomService.GenerateParticipantToken(c.Request().Context(), r, participant)
 	if err != nil {
 		return h.handleError(c, errors.ErrInternal(err))
 	}
@@ -321,6 +322,11 @@ func (h *Room) GetParticipants(c echo.Context) error {
 // @Description  Removes a participant from the room (host/co-host only)
 // @Tags         Participants
 // @Accept       json
+// RemoveParticipant handles DELETE /rooms/:id/participants/:pid
+// @Summary      Remove a participant
+// @Description  Removes a participant from the room (host/co-host only)
+// @Tags         Participants
+// @Accept       json
 // @Produce      json
 // @Security     BearerAuth
 // @Param        id   path      string  true  "Room ID (UUID)"
@@ -336,6 +342,11 @@ func (h *Room) GetWaitingParticipants(c echo.Context) error {
 		return h.handleError(c, errors.ErrInvalidArgument("Invalid room ID").WithDetail("error", "Room ID must be a valid UUID"))
 	}
 
+	// participantID, err := uuid.Parse(c.Param("pid"))
+	// if err != nil {
+	// 	return h.handleError(c, errors.ErrInvalidArgument("Invalid room ID").WithDetail("error", "Room ID must be a valid UUID"))
+	// }
+
 	userID, ok := c.Get("user_id").(uuid.UUID)
 	if !ok {
 		return h.handleError(c, errors.ErrUnauthenticated().WithDetail("error", "User not authenticated"))
@@ -347,51 +358,6 @@ func (h *Room) GetWaitingParticipants(c echo.Context) error {
 	}
 
 	return h.handleSuccess(c, presenter.ToParticipantListResponse(participants))
-}
-
-// RemoveParticipant handles DELETE /rooms/:id/participants/:pid
-// @Summary      Remove a participant
-// @Description  Removes a participant from the room (host/co-host only)
-// @Tags         Participants
-// @Accept       json
-// @Produce      json
-// @Security     BearerAuth
-// @Param        id   path      string  true  "Room ID (UUID)"
-// @Param        pid  path      string  true  "Participant ID (UUID)"
-// @Success      200  {object}  map[string]interface{}  "Participant admitted successfully"
-// @Failure      400  {object}  map[string]interface{}  "Invalid room or participant ID"
-// @Failure      401  {object}  map[string]interface{}  "User not authenticated"
-// @Failure      403  {object}  map[string]interface{}  "User is not the host"
-// @Failure      500  {object}  map[string]interface{}  "Failed to admit participant"
-// @Router       /rooms/{id}/participants/{pid}/admit [post]
-func (h *Room) AdmitParticipant(c echo.Context) error {
-	roomID, err := uuid.Parse(c.Param("id"))
-	if err != nil {
-		return h.handleError(c, errors.ErrInvalidArgument("Invalid room ID").WithDetail("error", "Room ID must be a valid UUID"))
-	}
-
-	participantID, err := uuid.Parse(c.Param("pid"))
-	if err != nil {
-		return h.handleError(c, errors.ErrInvalidArgument("Invalid participant ID").WithDetail("error", "Participant ID must be a valid UUID"))
-	}
-
-	userID, ok := c.Get("user_id").(uuid.UUID)
-	if !ok {
-		return h.handleError(c, errors.ErrUnauthenticated().WithDetail("error", "User not authenticated"))
-	}
-
-	var req room.RemoveParticipantRequest
-	if err := c.Bind(&req); err != nil {
-		return h.handleError(c, errors.ErrInvalidArgument("Invalid request body").WithDetail("error", err.Error()))
-	}
-
-	if err := h.roomService.RemoveParticipant(c.Request().Context(), roomID, userID, participantID, req.Reason); err != nil {
-		return h.handleError(c, err)
-	}
-
-	return h.handleSuccess(c, map[string]interface{}{
-		"message": "participant removed successfully",
-	})
 }
 
 // TransferHost handles POST /rooms/:id/transfer-host
@@ -443,16 +409,15 @@ func (h *Room) TransferHost(c echo.Context) error {
 // @Accept       json
 // @Produce      json
 // @Security     BearerAuth
-// @Param        id      path      string  true  "Room ID (UUID)"
-// @Param        pid     path      string  true  "Participant ID (UUID)"
-// @Param        request body      room.RemoveParticipantRequest  false  "Reason for removal"
-// @Success      200     {object}  map[string]interface{}  "Participant removed successfully"
-// @Failure      400     {object}  map[string]interface{}  "Invalid room or participant ID"
-// @Failure      401     {object}  map[string]interface{}  "User not authenticated"
-// @Failure      403     {object}  map[string]interface{}  "User is not the host"
-// @Failure      500     {object}  map[string]interface{}  "Failed to remove participant"
-// @Router       /rooms/{id}/participants/{pid} [delete]
-func (h *Room) RemoveParticipant(c echo.Context) error {
+// @Param        id   path      string  true  "Room ID (UUID)"
+// @Param        pid  path      string  true  "Participant ID (UUID)"
+// @Success      200  {object}  map[string]interface{}  "Participant admitted successfully"
+// @Failure      400  {object}  map[string]interface{}  "Invalid room or participant ID"
+// @Failure      401  {object}  map[string]interface{}  "User not authenticated"
+// @Failure      403  {object}  map[string]interface{}  "User is not the host"
+// @Failure      500  {object}  map[string]interface{}  "Failed to admit participant"
+// @Router       /rooms/{id}/participants/{pid}/admit [post]
+func (h *Room) AdmitParticipant(c echo.Context) error {
 	roomID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		return h.handleError(c, errors.ErrInvalidArgument("Invalid room ID").WithDetail("error", "Room ID must be a valid UUID"))
@@ -524,4 +489,49 @@ func (h *Room) DenyParticipant(c echo.Context) error {
 	return h.handleSuccess(c, map[string]interface{}{
 		"message": "participant denied successfully",
 	})
+}
+
+// RemoveParticipant handles DELETE /rooms/:id/participants/:pid
+// @Summary      Remove a participant
+// @Description  Removes a participant from the room (host/co-host only)
+// @Tags         Participants
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id      path      string  true  "Room ID (UUID)"
+// @Param        pid     path      string  true  "Participant ID (UUID)"
+// @Param        request body      room.RemoveParticipantRequest  false  "Reason for removal"
+// @Success      200     {object}  map[string]interface{}  "Participant removed successfully"
+// @Failure      400     {object}  map[string]interface{}  "Invalid room or participant ID"
+// @Failure      401     {object}  map[string]interface{}  "User not authenticated"
+// @Failure      403     {object}  map[string]interface{}  "User is not the host"
+// @Failure      500     {object}  map[string]interface{}  "Failed to remove participant"
+// @Router       /rooms/{id}/participants/{pid} [delete]
+func (h *Room) RemoveParticipant(c echo.Context) error {
+	roomID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		return h.handleError(c, errors.ErrInvalidArgument("Invalid room ID").WithDetail("error", "Room ID must be a valid UUID"))
+	}
+
+	participantID, err := uuid.Parse(c.Param("pid"))
+	if err != nil {
+		return h.handleError(c, errors.ErrInvalidArgument("Invalid participant ID").WithDetail("error", "Participant ID must be a valid UUID"))
+	}
+
+	userID, ok := c.Get("user_id").(uuid.UUID)
+	if !ok {
+		return h.handleError(c, errors.ErrUnauthenticated().WithDetail("error", "User not authenticated"))
+	}
+
+	var req room.RemoveParticipantRequest
+	if err := c.Bind(&req); err != nil {
+		// Reason is optional; bind errors treated as empty reason
+		req.Reason = ""
+	}
+
+	if err := h.roomService.RemoveParticipant(c.Request().Context(), roomID, userID, participantID, req.Reason); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return h.handleSuccess(c, map[string]interface{}{"message": "participant removed successfully"})
 }
