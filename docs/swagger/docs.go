@@ -750,14 +750,17 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Retrieves all participants waiting for host approval (host only)",
+                "description": "Removes a participant from the room (host/co-host only)",
+                "consumes": [
+                    "application/json"
+                ],
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
-                    "Rooms"
+                    "Participants"
                 ],
-                "summary": "Get waiting participants",
+                "summary": "Remove a participant",
                 "parameters": [
                     {
                         "type": "string",
@@ -893,14 +896,17 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Admits a waiting participant into the room (host only)",
+                "description": "Removes a participant from the room (host/co-host only)",
+                "consumes": [
+                    "application/json"
+                ],
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
-                    "Rooms"
+                    "Participants"
                 ],
-                "summary": "Admit participant",
+                "summary": "Remove a participant",
                 "parameters": [
                     {
                         "type": "string",

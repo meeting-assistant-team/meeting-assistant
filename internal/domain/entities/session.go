@@ -1,6 +1,7 @@
 package entities
 
 import (
+	"crypto/subtle"
 	"time"
 
 	"github.com/google/uuid"
@@ -32,6 +33,18 @@ func NewSession(userID uuid.UUID, refreshToken string, expiresAt time.Time) *Ses
 		RevokedAt: nil,
 		CreatedAt: time.Now(),
 	}
+}
+
+// FindByTokenHash finds a session by its token hash
+func (s *Session) FindByTokenHash(tokenHash string) bool {
+	// Use constant-time comparison to mitigate timing attacks
+	if s == nil {
+		return false
+	}
+	if s.TokenHash == "" || tokenHash == "" {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(s.TokenHash), []byte(tokenHash)) == 1
 }
 
 // IsExpired checks if session is expired

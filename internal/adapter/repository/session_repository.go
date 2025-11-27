@@ -2,6 +2,8 @@ package repository
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"time"
 
@@ -46,8 +48,12 @@ func (r *SessionRepository) FindByID(ctx context.Context, id uuid.UUID) (*entiti
 // FindByTokenHash finds a session by refresh token hash
 func (r *SessionRepository) FindByTokenHash(ctx context.Context, tokenHash string) (*entities.Session, error) {
 	var session entities.Session
+	// TokenHash parameter is the raw refresh token; compute its SHA-256 hex digest
+	h := sha256.Sum256([]byte(tokenHash))
+	hashStr := hex.EncodeToString(h[:])
+
 	if err := r.db.WithContext(ctx).
-		Where("refresh_token = ? AND is_revoked = ?", tokenHash, false).
+		Where("token_hash = ? AND revoked_at IS NULL", hashStr).
 		First(&session).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, entities.ErrSessionNotFound
@@ -61,7 +67,7 @@ func (r *SessionRepository) FindByTokenHash(ctx context.Context, tokenHash strin
 func (r *SessionRepository) FindByUserID(ctx context.Context, userID uuid.UUID) ([]*entities.Session, error) {
 	var sessions []*entities.Session
 	if err := r.db.WithContext(ctx).
-		Where("user_id = ? AND is_revoked = ?", userID, false).
+		Where("user_id = ?", userID).
 		Find(&sessions).Error; err != nil {
 		return nil, fmt.Errorf("failed to find sessions by user ID: %w", err)
 	}
@@ -95,7 +101,6 @@ func (r *SessionRepository) Revoke(ctx context.Context, id uuid.UUID) error {
 		Model(&entities.Session{}).
 		Where("id = ?", id).
 		Updates(map[string]interface{}{
-			"is_revoked": true,
 			"revoked_at": now,
 		}).Error; err != nil {
 		return fmt.Errorf("failed to revoke session: %w", err)
@@ -108,9 +113,8 @@ func (r *SessionRepository) RevokeAllByUserID(ctx context.Context, userID uuid.U
 	now := time.Now()
 	if err := r.db.WithContext(ctx).
 		Model(&entities.Session{}).
-		Where("user_id = ? AND is_revoked = ?", userID, false).
+		Where("user_id = ?", userID).
 		Updates(map[string]interface{}{
-			"is_revoked": true,
 			"revoked_at": now,
 		}).Error; err != nil {
 		return fmt.Errorf("failed to revoke all sessions: %w", err)
@@ -131,7 +135,7 @@ func (r *SessionRepository) DeleteExpired(ctx context.Context, before time.Time)
 // CleanupOldSessions removes old revoked or expired sessions
 func (r *SessionRepository) CleanupOldSessions(ctx context.Context, before time.Time) error {
 	if err := r.db.WithContext(ctx).
-		Where("(is_revoked = ? AND revoked_at < ?) OR expires_at < ?", true, before, before).
+		Where(" revoked_at < ? AND expires_at < ?", before, before).
 		Delete(&entities.Session{}).Error; err != nil {
 		return fmt.Errorf("failed to cleanup old sessions: %w", err)
 	}

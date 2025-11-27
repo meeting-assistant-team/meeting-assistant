@@ -740,7 +740,9 @@ paths:
       - Participants
   /rooms/{id}/participants/{pid}/admit:
     post:
-      description: Admits a waiting participant into the room (host only)
+      consumes:
+      - application/json
+      description: Removes a participant from the room (host/co-host only)
       parameters:
       - description: Room ID (UUID)
         in: path
@@ -782,9 +784,9 @@ paths:
             type: object
       security:
       - BearerAuth: []
-      summary: Admit participant
+      summary: Remove a participant
       tags:
-      - Rooms
+      - Participants
   /rooms/{id}/participants/{pid}/deny:
     post:
       description: Denies a waiting participant from joining the room (host only)
@@ -871,7 +873,9 @@ paths:
       - Rooms
   /rooms/{id}/participants/waiting:
     get:
-      description: Retrieves all participants waiting for host approval (host only)
+      consumes:
+      - application/json
+      description: Removes a participant from the room (host/co-host only)
       parameters:
       - description: Room ID (UUID)
         in: path
@@ -907,9 +911,9 @@ paths:
             type: object
       security:
       - BearerAuth: []
-      summary: Get waiting participants
+      summary: Remove a participant
       tags:
-      - Rooms
+      - Participants
   /webhooks/livekit:
     post:
       consumes:

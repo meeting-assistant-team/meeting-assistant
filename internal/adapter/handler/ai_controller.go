@@ -1,0 +1,41 @@
+package handler
+
+import (
+	"github.com/labstack/echo/v4"
+	"go.uber.org/zap"
+
+	"github.com/johnquangdev/meeting-assistant/errors"
+	aiuse "github.com/johnquangdev/meeting-assistant/internal/usecase/ai"
+)
+
+// AIController handles API endpoints that trigger AI processing
+type AIController struct {
+	svc    aiuse.Service
+	logger *zap.Logger
+}
+
+// NewAIController creates a new AI controller
+func NewAIController(svc aiuse.Service, logger *zap.Logger) *AIController {
+	return &AIController{svc: svc, logger: logger}
+}
+
+// ProcessMeeting triggers AI processing for a meeting
+func (ac *AIController) ProcessMeeting(c echo.Context) error {
+	meetingID := c.Param("id")
+	var req struct {
+		RecordingURL string `json:"recording_url"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return HandleError(ac.logger, c, errors.ErrInvalidPayload())
+	}
+	if req.RecordingURL == "" {
+		return HandleError(ac.logger, c, errors.ErrMissingRecordingURL())
+	}
+	if err := ac.svc.StartProcessing(c.Request().Context(), meetingID, req.RecordingURL); err != nil {
+		if ac.logger != nil {
+			ac.logger.Error("failed to start processing", zap.Error(err))
+		}
+		return HandleError(ac.logger, c, errors.ErrProcessingFailed(err))
+	}
+	return HandleSuccess(ac.logger, c, map[string]interface{}{"status": "processing_started"})
+}

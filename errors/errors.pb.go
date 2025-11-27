@@ -7,11 +7,12 @@
 package errors
 
 import (
-	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
+
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 )
 
 const (
@@ -21,7 +22,6 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// ErrorCode định nghĩa các mã lỗi chuẩn trong hệ thống
 type ErrorCode int32
 
 const (
@@ -40,8 +40,8 @@ const (
 	ErrorCode_UNIMPLEMENTED       ErrorCode = 11
 	ErrorCode_UNAVAILABLE         ErrorCode = 12
 	ErrorCode_DEADLINE_EXCEEDED   ErrorCode = 13
-	ErrorCode_FORBIDDEN           ErrorCode = 14 // Forbidden error
-	ErrorCode_HTTP_OK             ErrorCode = 15 // HTTP OK response
+	ErrorCode_FORBIDDEN           ErrorCode = 14
+	ErrorCode_HTTP_OK             ErrorCode = 15
 	// Authentication errors (1000-1999)
 	ErrorCode_AUTH_INVALID_TOKEN         ErrorCode = 1000
 	ErrorCode_AUTH_TOKEN_EXPIRED         ErrorCode = 1001
@@ -86,9 +86,9 @@ const (
 	ErrorCode_DB_TRANSACTION_FAILED   ErrorCode = 7002
 	ErrorCode_DB_CONSTRAINT_VIOLATION ErrorCode = 7003
 	// Custom errors for AI Controller and Webhook
-	ErrorCode_INVALID_PAYLOAD       ErrorCode = 8000 // Payload không hợp lệ
-	ErrorCode_MISSING_RECORDING_URL ErrorCode = 8001 // Thiếu URL ghi âm
-	ErrorCode_PROCESSING_FAILED     ErrorCode = 8002 // Xử lý thất bại
+	ErrorCode_INVALID_PAYLOAD       ErrorCode = 8000
+	ErrorCode_MISSING_RECORDING_URL ErrorCode = 8001
+	ErrorCode_PROCESSING_FAILED     ErrorCode = 8002
 )
 
 // Enum value maps for ErrorCode.
@@ -298,7 +298,8 @@ const file_errors_errors_proto_rawDesc = "" +
 	"\x17DB_CONSTRAINT_VIOLATION\x10\xdb6\x12\x14\n" +
 	"\x0fINVALID_PAYLOAD\x10\xc0>\x12\x1a\n" +
 	"\x15MISSING_RECORDING_URL\x10\xc1>\x12\x16\n" +
-	"\x11PROCESSING_FAILED\x10\xc2>B2Z0github.com/johnquangdev/meeting-assistant/errorsb\x06proto3"
+	"\x11PROCESSING_FAILED\x10\xc2>B\n" +
+	"Z\b./errorsb\x06proto3"
 
 var (
 	file_errors_errors_proto_rawDescOnce sync.Once

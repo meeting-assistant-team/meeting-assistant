@@ -277,3 +277,4 @@ Thumbs.db
 *.swp
 *.swo
 bin/
+.vscode/

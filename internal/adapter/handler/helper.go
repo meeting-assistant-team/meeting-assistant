@@ -2,10 +2,17 @@ package handler
 
 import (
 	"encoding/json"
+	stdErrors "errors"
 	"net/http"
 	"strings"
 
 	"github.com/johnquangdev/meeting-assistant/errors"
+	"github.com/johnquangdev/meeting-assistant/internal/adapter/dto/room"
+	"github.com/johnquangdev/meeting-assistant/internal/domain/entities"
+	"github.com/johnquangdev/meeting-assistant/internal/domain/repositories"
+
+	"github.com/labstack/echo/v4"
+	"go.uber.org/zap"
 )
 
 // RespondJSON sends a JSON response with the given status code and data
@@ -102,4 +109,180 @@ func GetQueryParam(r *http.Request, key, defaultValue string) string {
 func ValidateContentType(r *http.Request, expectedType string) bool {
 	contentType := r.Header.Get("Content-Type")
 	return strings.HasPrefix(strings.ToLower(contentType), strings.ToLower(expectedType))
+}
+
+// buildFilters converts ListRoomsRequest to repository filters
+func buildFilters(req *room.ListRoomsRequest) repositories.RoomFilters {
+	filters := repositories.RoomFilters{
+		Search:    req.Search,
+		Tags:      req.Tags,
+		Limit:     req.PageSize,
+		Offset:    (req.Page - 1) * req.PageSize,
+		SortBy:    req.SortBy,
+		SortOrder: req.SortOrder,
+	}
+
+	if req.Type != nil {
+		roomType := entities.RoomType(*req.Type)
+		filters.Type = &roomType
+	}
+
+	if req.Status != nil {
+		roomStatus := entities.RoomStatus(*req.Status)
+		filters.Status = &roomStatus
+	}
+
+	return filters
+}
+
+// Response shapes
+type success struct {
+	Code    interface{} `json:"code,omitempty"`
+	Message string      `json:"message,omitempty"`
+	Data    interface{} `json:"data,omitempty"`
+}
+
+type errs struct {
+	Code    interface{} `json:"code,omitempty"`
+	Message string      `json:"message,omitempty"`
+	Info    string      `json:"info,omitempty"`
+}
+
+// getRequestID tries to read X-Request-ID from the request
+func getRequestID(c echo.Context) string {
+	if c == nil || c.Request() == nil {
+		return ""
+	}
+	return c.Request().Header.Get("X-Request-ID")
+}
+
+// handleSuccess writes a standardized success response
+func (h *Room) handleSuccess(c echo.Context, data interface{}) error {
+	resp := success{
+		Code:    int(errors.ErrorCode_HTTP_OK),
+		Message: "success",
+		Data:    data,
+	}
+
+	if h != nil && h.logger != nil {
+		h.logger.Info("http.response.success",
+			zap.String("request_id", getRequestID(c)),
+			zap.String("path", c.Path()),
+		)
+	}
+
+	return c.JSON(http.StatusOK, resp)
+}
+
+// handleError centralizes error handling and logging
+func (h *Room) handleError(c echo.Context, err error) error {
+	reqID := getRequestID(c)
+
+	// Try to detect AppError from project errors package
+	var appErr errors.AppError
+	if stdErrors.As(err, &appErr) {
+		// Structured logging
+		if h != nil && h.logger != nil {
+			h.logger.Error("http.response.error",
+				zap.String("request_id", reqID),
+				zap.String("path", c.Path()),
+				zap.Any("app_code", appErr.Code),
+				zap.Error(err),
+			)
+		}
+
+		info := ""
+		if appErr.Raw != nil {
+			info = appErr.Raw.Error()
+		}
+
+		body := errs{
+			Code:    appErr.Code,
+			Message: appErr.Message,
+			Info:    info,
+		}
+
+		return c.JSON(appErr.HTTPCode, body)
+	}
+
+	// Non-AppError => internal server error
+	if h != nil && h.logger != nil {
+		h.logger.Error("http.response.error",
+			zap.String("request_id", reqID),
+			zap.String("path", c.Path()),
+			zap.Error(err),
+		)
+	}
+
+	body := errs{
+		Code:    errors.ErrorCode_INTERNAL,
+		Message: "Internal server error",
+		Info:    err.Error(),
+	}
+
+	return c.JSON(http.StatusInternalServerError, body)
+}
+
+// HandleSuccess writes a standardized success response using provided logger
+func HandleSuccess(logger *zap.Logger, c echo.Context, data interface{}) error {
+	resp := success{
+		Code:    int(errors.ErrorCode_HTTP_OK),
+		Message: "success",
+		Data:    data,
+	}
+
+	if logger != nil {
+		logger.Info("http.response.success",
+			zap.String("request_id", getRequestID(c)),
+			zap.String("path", c.Path()),
+		)
+	}
+
+	return c.JSON(http.StatusOK, resp)
+}
+
+// HandleError centralizes error handling and logging using provided logger
+func HandleError(logger *zap.Logger, c echo.Context, err error) error {
+	reqID := getRequestID(c)
+
+	var appErr errors.AppError
+	if stdErrors.As(err, &appErr) {
+		if logger != nil {
+			logger.Error("http.response.error",
+				zap.String("request_id", reqID),
+				zap.String("path", c.Path()),
+				zap.Any("app_code", appErr.Code),
+				zap.Error(err),
+			)
+		}
+
+		info := ""
+		if appErr.Raw != nil {
+			info = appErr.Raw.Error()
+		}
+
+		body := errs{
+			Code:    appErr.Code,
+			Message: appErr.Message,
+			Info:    info,
+		}
+
+		return c.JSON(appErr.HTTPCode, body)
+	}
+
+	if logger != nil {
+		logger.Error("http.response.error",
+			zap.String("request_id", reqID),
+			zap.String("path", c.Path()),
+			zap.Error(err),
+		)
+	}
+
+	body := errs{
+		Code:    errors.ErrorCode_INTERNAL,
+		Message: "Internal server error",
+		Info:    err.Error(),
+	}
+
+	return c.JSON(http.StatusInternalServerError, body)
 }

@@ -2,9 +2,8 @@ syntax = "proto3";
 
 package errors;
 
-option go_package = "github.com/johnquangdev/meeting-assistant/errors";
+option go_package = "./errors";
 
-// ErrorCode định nghĩa các mã lỗi chuẩn trong hệ thống
 enum ErrorCode {
   // General errors (0-999)
   UNSPECIFIED = 0;
@@ -21,8 +20,8 @@ enum ErrorCode {
   UNIMPLEMENTED = 11;
   UNAVAILABLE = 12;
   DEADLINE_EXCEEDED = 13;
-  FORBIDDEN = 14; // Forbidden error
-  HTTP_OK = 15; // HTTP OK response
+  FORBIDDEN = 14; 
+  HTTP_OK = 15; 
 
   // Authentication errors (1000-1999)
   AUTH_INVALID_TOKEN = 1000;
@@ -75,7 +74,7 @@ enum ErrorCode {
   DB_CONSTRAINT_VIOLATION = 7003;
 
   // Custom errors for AI Controller and Webhook
-  INVALID_PAYLOAD = 8000; // Payload không hợp lệ
-  MISSING_RECORDING_URL = 8001; // Thiếu URL ghi âm
-  PROCESSING_FAILED = 8002; // Xử lý thất bại
+  INVALID_PAYLOAD = 8000; 
+  MISSING_RECORDING_URL = 8001; 
+  PROCESSING_FAILED = 8002; 
 }
