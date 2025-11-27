@@ -4,7 +4,9 @@ import (
 	"net/http"
 
 	"github.com/labstack/echo/v4"
+	"go.uber.org/zap"
 
+	"github.com/johnquangdev/meeting-assistant/errors"
 	_ "github.com/johnquangdev/meeting-assistant/internal/adapter/dto/auth" // for swagger
 	"github.com/johnquangdev/meeting-assistant/internal/adapter/presenter"
 	authUsecase "github.com/johnquangdev/meeting-assistant/internal/usecase/auth"
@@ -13,12 +15,14 @@ import (
 // Auth handles authentication HTTP requests
 type Auth struct {
 	oauthService *authUsecase.OAuthService
+	logger       *zap.Logger
 }
 
 // NewAuth creates a new auth handler
-func NewAuth(oauthService *authUsecase.OAuthService) *Auth {
+func NewAuth(oauthService *authUsecase.OAuthService, logger *zap.Logger) *Auth {
 	return &Auth{
 		oauthService: oauthService,
+		logger:       logger,
 	}
 }
 
@@ -35,10 +39,7 @@ func (h *Auth) GoogleLogin(c echo.Context) error {
 
 	authURL, err := h.oauthService.GetGoogleAuthURL(ctx)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]interface{}{
-			"error":   "Failed to generate auth URL",
-			"details": err.Error(),
-		})
+		return HandleError(h.logger, c, errors.ErrInternal(err))
 	}
 
 	// Redirect to Google OAuth
@@ -64,9 +65,7 @@ func (h *Auth) GoogleCallback(c echo.Context) error {
 	state := c.QueryParam("state")
 
 	if code == "" || state == "" {
-		return c.JSON(http.StatusBadRequest, map[string]interface{}{
-			"error": "Missing code or state parameter",
-		})
+		return HandleError(h.logger, c, errors.ErrInvalidArgument("Missing code or state parameter"))
 	}
 
 	req := &authUsecase.GoogleCallbackRequest{
@@ -76,15 +75,12 @@ func (h *Auth) GoogleCallback(c echo.Context) error {
 
 	usecaseResp, err := h.oauthService.HandleGoogleCallback(ctx, req)
 	if err != nil {
-		return c.JSON(http.StatusUnauthorized, map[string]interface{}{
-			"error":   "Authentication failed",
-			"details": err.Error(),
-		})
+		return HandleError(h.logger, c, errors.ErrUnauthenticated().WithDetail("error", err.Error()))
 	}
 
 	// Convert usecase response to DTO
 	response := presenter.ToAuthResponse(usecaseResp)
-	return c.JSON(http.StatusOK, response)
+	return HandleSuccess(h.logger, c, response)
 }
 
 // RefreshToken refreshes the access token
@@ -106,29 +102,21 @@ func (h *Auth) RefreshToken(c echo.Context) error {
 	}
 
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]interface{}{
-			"error":   "Invalid request body",
-			"details": err.Error(),
-		})
+		return HandleError(h.logger, c, errors.ErrInvalidArgument("Invalid request body").WithDetail("error", err.Error()))
 	}
 
 	if req.RefreshToken == "" {
-		return c.JSON(http.StatusBadRequest, map[string]interface{}{
-			"error": "Missing refresh token",
-		})
+		return HandleError(h.logger, c, errors.ErrInvalidArgument("Missing refresh token"))
 	}
 
 	usecaseResp, err := h.oauthService.RefreshAccessToken(ctx, req.RefreshToken)
 	if err != nil {
-		return c.JSON(http.StatusUnauthorized, map[string]interface{}{
-			"error":   "Failed to refresh token",
-			"details": err.Error(),
-		})
+		return HandleError(h.logger, c, errors.ErrUnauthenticated().WithDetail("error", err.Error()))
 	}
 
 	// Convert usecase response to DTO (no refresh token in response)
 	response := presenter.ToAuthRefreshTokenResponse(usecaseResp)
-	return c.JSON(http.StatusOK, response)
+	return HandleSuccess(h.logger, c, response)
 }
 
 // Logout logs out the current user
@@ -150,21 +138,14 @@ func (h *Auth) Logout(c echo.Context) error {
 	}
 
 	if err := c.Bind(&req); err != nil || req.RefreshToken == "" {
-		return c.JSON(http.StatusBadRequest, map[string]interface{}{
-			"error": "Missing refresh token",
-		})
+		return HandleError(h.logger, c, errors.ErrInvalidArgument("Missing refresh token"))
 	}
 
 	if err := h.oauthService.Logout(ctx, req.RefreshToken); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]interface{}{
-			"error":   "Failed to logout",
-			"details": err.Error(),
-		})
+		return HandleError(h.logger, c, errors.ErrInternal(err))
 	}
 
-	return c.JSON(http.StatusOK, map[string]string{
-		"message": "Logged out successfully",
-	})
+	return HandleSuccess(h.logger, c, map[string]string{"message": "Logged out successfully"})
 }
 
 // Me returns the current user information
@@ -195,20 +176,15 @@ func (h *Auth) Me(c echo.Context) error {
 	}
 
 	if token == "" {
-		return c.JSON(http.StatusUnauthorized, map[string]interface{}{
-			"error": "Missing authorization token",
-		})
+		return HandleError(h.logger, c, errors.ErrUnauthenticated().WithDetail("error", "Missing authorization token"))
 	}
 
 	user, err := h.oauthService.ValidateSession(ctx, token)
 	if err != nil {
-		return c.JSON(http.StatusUnauthorized, map[string]interface{}{
-			"error":   "Invalid session",
-			"details": err.Error(),
-		})
+		return HandleError(h.logger, c, errors.ErrUnauthenticated().WithDetail("error", err.Error()))
 	}
 
 	// Convert entity to DTO
 	response := presenter.ToUserResponse(user)
-	return c.JSON(http.StatusOK, response)
+	return HandleSuccess(h.logger, c, response)
 }
