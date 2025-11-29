@@ -10,6 +10,8 @@ import (
 	"syscall"
 	"time"
 
+	"go.uber.org/zap"
+
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 
@@ -129,8 +131,13 @@ func main() {
 	asmClient := pkgai.NewAssemblyAIClient(&cfg.Assembly)
 	groqClient := pkgai.NewGroqClient(&cfg.Groq)
 	aiService := aiuse.NewAIService(aiRepo, asmClient, groqClient, cfg)
-	aiController := handler.NewAIController(aiService)
-	aiWebhookHandler := handler.NewAIWebhookHandler(aiService, cfg.Assembly.WebhookSecret)
+	logger, err := zap.NewProduction()
+	if err != nil {
+		log.Fatalf("Failed to initialize logger: %v", err)
+	}
+	defer logger.Sync()
+	aiController := handler.NewAIController(aiService, logger)
+	aiWebhookHandler := handler.NewAIWebhookHandler(aiService, cfg.Assembly.WebhookSecret, logger)
 
 	// Initialize OAuth provider
 	log.Println("🔐 Initializing OAuth provider...")
@@ -189,12 +196,12 @@ func main() {
 
 	// Initialize room handler
 	log.Println("🚪 Initializing room handler...")
-	roomHandler := handler.NewRoomHandler(roomService)
+	roomHandler := handler.NewRoomHandler(roomService, logger)
 	log.Println("✅ Room handler initialized successfully")
 
 	// Initialize webhook handler (for LiveKit webhooks)
 	log.Println("🪝 Initializing webhook handler...")
-	webhookHandler := handler.NewWebhookHandler(roomService, cfg.LiveKit.WebhookSecret)
+	webhookHandler := handler.NewWebhookHandler(roomService, cfg.LiveKit.WebhookSecret, logger)
 	log.Println("✅ Webhook handler initialized successfully")
 
 	// Setup router with handlers
