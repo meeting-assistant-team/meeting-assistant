@@ -73,8 +73,8 @@ jobs:
             fi
 
             # Update docker-compose.yml with new image tag
-            sed -i "s|image: ghcr.io/sfastvn/stark-backend:.*|image: ghcr.io/sfastvn/stark-backend:${TAG}|g" docker-compose.yml
+            sed -i "s|image: ghcr.io/meeting-assistant-team/meeting-assistant:.*|image: ghcr.io/meeting-assistant-team/meeting-assistant:${TAG}|g" docker-compose.yml
 
             docker compose pull app
             docker compose up -d app
-            docker images | grep "ghcr.io/sfastvn" | grep -v "latest" | awk '{print $3}' | xargs docker rmi
+            docker images | grep "ghcr.io/meeting-assistant-team" | grep -v "latest" | awk '{print $3}' | xargs docker rmi
