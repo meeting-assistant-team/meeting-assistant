@@ -1,190 +1,80 @@
-name: Deploy to Production Server
+name: Build & Deploy via Docker
 
 on:
   push:
-    branches:
-      - main  # Trigger khi push vào branch main
-  workflow_dispatch:  # Cho phép manual trigger từ GitHub UI
+    branches: [ main ]
+    tags: [ 'v*.*.*' ]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  deploy:
-    name: Deploy to Server via SSH
+  build:
     runs-on: ubuntu-latest
-
+    outputs:
+      tags: ${{ steps.meta.outputs.tags }}
+      labels: ${{ steps.meta.outputs.labels }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - name: Login to GHCR
+        run: echo ${{ secrets.GHCR_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
-      - name: Deploy and Restart Containers via SSH
-        uses: appleboy/ssh-action@v1.0.0
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USERNAME }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          script: |
-            set -e
-
-            # 1. Chuẩn bị thư mục project
-            cd ~
-            
-            # Kiểm tra và xử lý repository
-            if [ -d "meeting-assistant" ]; then
-              echo "Project folder exists. Checking remote configuration..."
-              cd meeting-assistant
-              
-              # Backup .env nếu tồn tại
-              if [ -f ".env" ]; then
-                cp .env ~/.env.backup
-                echo ".env backed up"
-              fi
-              
-              # Kiểm tra remote URL
-              CURRENT_REMOTE=$(git remote get-url origin 2>/dev/null || echo "")
-              if [[ "$CURRENT_REMOTE" != *"x-access-token"* ]]; then
-                echo "Remote URL không có token, đang fix..."
-                cd ~
-                rm -rf meeting-assistant
-                git clone https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }} meeting-assistant
-                cd meeting-assistant
-                
-                # Restore .env nếu có
-                if [ -f ~/.env.backup ]; then
-                  cp ~/.env.backup .env
-                  echo ".env restored"
-                fi
-              else
-                echo "Remote URL đã có token authentication"
-              fi
-            else
-              echo "Project folder not found. Cloning..."
-              git clone https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }} meeting-assistant
-              cd meeting-assistant
-            fi
-
-            # 2. Đảm bảo remote URL luôn có token
-            echo "Updating Git remote with authentication..."
-            git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}
-
-            # 3. Cập nhật code mới nhất (đảm bảo pull được code mới)
-            echo "Fetching latest code..."
-            git fetch --all
-            git reset --hard origin/main
-            git pull origin main
-            
-            # Hiển thị commit hiện tại để verify
-            echo "Current commit:"
-            git log -1 --oneline
-
-            # 3. Export environment variables từ GitHub Secrets
-            echo "Setting up environment variables..."
-            export ENVIRONMENT=production
-            export PORT=8080
-            export ALLOWED_ORIGINS="${{ secrets.ALLOWED_ORIGINS }}"
-            export SHUTDOWN_TIMEOUT=10
-            
-            # Database
-            export DB_USER=postgres
-            export DB_PASSWORD="${{ secrets.DB_PASSWORD }}"
-            export DB_NAME=meeting_assistant
-            export DB_SSLMODE=disable
-            export DB_MAX_OPEN_CONNS=25
-            export DB_MAX_IDLE_CONNS=5
-            export DB_CONN_MAX_LIFETIME=5m
-            
-            # Redis
-            export REDIS_PASSWORD="${{ secrets.REDIS_PASSWORD }}"
-            export REDIS_DB=0
-            
-            # JWT
-            export JWT_ACCESS_TOKEN_SECRET="${{ secrets.JWT_ACCESS_TOKEN_SECRET }}"
-            export JWT_REFRESH_TOKEN_SECRET="${{ secrets.JWT_REFRESH_TOKEN_SECRET }}"
-            export JWT_ACCESS_TOKEN_EXPIRE=1h
-            export JWT_REFRESH_TOKEN_EXPIRE=720h
-            
-            # Google OAuth
-            export GOOGLE_CLIENT_ID="${{ secrets.GOOGLE_CLIENT_ID }}"
-            export GOOGLE_CLIENT_SECRET="${{ secrets.GOOGLE_CLIENT_SECRET }}"
-            export GOOGLE_REDIRECT_URL="${{ secrets.GOOGLE_REDIRECT_URL }}"
-            
-            # LiveKit
-            export LIVEKIT_API_KEY="${{ secrets.LIVEKIT_API_KEY }}"
-            export LIVEKIT_API_SECRET="${{ secrets.LIVEKIT_API_SECRET }}"
-            export LIVEKIT_URL="${{ secrets.LIVEKIT_URL }}"
-            
-            # MinIO
-            export MINIO_ENDPOINT="${{ secrets.MINIO_ENDPOINT }}"
-            export MINIO_ACCESS_KEY="${{ secrets.MINIO_ACCESS_KEY }}"
-            export MINIO_SECRET_KEY="${{ secrets.MINIO_SECRET_KEY }}"
-            export MINIO_USE_SSL=false
-            export MINIO_BUCKET_NAME=meeting-recordings
-            
-            # OpenAI
-            export OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}"
-            
-            # Frontend
-            export FRONTEND_URL="${{ secrets.FRONTEND_URL }}"
-            
-            # Logging
-            export LOG_LEVEL=info
-            export LOG_FORMAT=json
-            export RATE_LIMIT_REQUESTS=100
-            export RATE_LIMIT_WINDOW=1m
-
-            # 4. Xác định lệnh docker compose (hỗ trợ cả version cũ và mới)
-            if command -v docker-compose &> /dev/null; then
-              DOCKER_COMPOSE="docker-compose"
-              echo "✅ Using docker-compose (standalone)"
-            elif docker compose version &> /dev/null; then
-              DOCKER_COMPOSE="docker compose"
-              echo "✅ Using docker compose (plugin)"
-            else
-              echo "❌ Error: Neither docker-compose nor docker compose found!"
-              exit 1
-            fi
-
-            # 5. Dừng và xóa containers cũ
-            echo "🛑 Stopping and removing old containers..."
-            $DOCKER_COMPOSE -f docker-compose.prod.yml down
-
-            # 6. Xóa image cũ của app để force rebuild
-            echo "🗑️  Removing old app images..."
-            docker rmi meeting-assistant-app-prod 2>/dev/null || true
-            docker images | grep meeting-assistant | awk '{print $3}' | xargs docker rmi -f 2>/dev/null || true
-
-            # 7. Xây dựng lại image mới (không dùng cache)
-            echo "🔨 Building new images without cache..."
-            $DOCKER_COMPOSE -f docker-compose.prod.yml build --no-cache --pull app
-
-            # 8. Chạy containers mới
-            echo "🚀 Starting new containers..."
-            $DOCKER_COMPOSE -f docker-compose.prod.yml up -d --remove-orphans
-
-            # 9. Dọn dẹp images và containers không dùng
-            echo "🧹 Cleaning up unused images..."
-            docker image prune -af
-            docker container prune -f
-
-      - name: Health Check
-        uses: appleboy/ssh-action@v1.0.0
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USERNAME }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          script: |
-            echo "⏳ Waiting for services to start..."
-            sleep 20
-            echo "🏥 Checking health endpoint..."
-            curl -f http://localhost:8080/health || (echo "❌ Health check failed!" && exit 1)
-            echo "✅ Health check passed!"
-
-      - name: Notify Deployment Status
-        if: always()
+      - name: Extract metadata
+        id: meta
         run: |
-          if [ "${{ job.status }}" == "success" ]; then
-            echo "✅ Deployment successful!"
+          if [[ $GITHUB_REF == refs/tags/* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/}
+            TAGS="${REGISTRY}/${IMAGE_NAME}:${VERSION},${REGISTRY}/${IMAGE_NAME}:latest"
           else
-            echo "❌ Deployment failed!"
+            TAGS="${REGISTRY}/${IMAGE_NAME}:latest"
           fi
+          echo "tags=${TAGS}" >> $GITHUB_OUTPUT
+
+      - name: Build Docker image
+        run: |
+          TAGS="${{ steps.meta.outputs.tags }}"
+          IFS=',' read -ra TAG_ARRAY <<< "$TAGS"
+          BUILD_ARGS=""
+          for tag in "${TAG_ARRAY[@]}"; do
+            BUILD_ARGS="$BUILD_ARGS -t $tag"
+          done
+          docker build $BUILD_ARGS .
+
+      - name: Push image to GHCR
+        run: |
+          TAGS="${{ steps.meta.outputs.tags }}"
+          IFS=',' read -ra TAG_ARRAY <<< "$TAGS"
+          for tag in "${TAG_ARRAY[@]}"; do
+            docker push $tag
+          done
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH to server and deploy
+        uses: appleboy/ssh-action@v1.1.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            docker login ghcr.io -u ${{ github.actor }} -p ${{ secrets.GHCR_TOKEN }}
+            cd ${{ secrets.PROJECT_PATH }}
+
+            # Determine which tag to deploy
+            if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+              TAG="${{ github.ref_name }}"
+            else
+              TAG="latest"
+            fi
+
+            # Update docker-compose.yml with new image tag
+            sed -i "s|image: ghcr.io/sfastvn/stark-backend:.*|image: ghcr.io/sfastvn/stark-backend:${TAG}|g" docker-compose.yml
+
+            docker compose pull app
+            docker compose up -d app
+            docker images | grep "ghcr.io/sfastvn" | grep -v "latest" | awk '{print $3}' | xargs docker rmi
