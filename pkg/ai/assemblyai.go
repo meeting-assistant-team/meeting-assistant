@@ -36,11 +36,11 @@ func NewAssemblyAIClient(cfg *config.AssemblyAIConfig) *AssemblyAIClient {
 
 // TranscribeRequest is payload for /v2/transcripts
 type TranscribeRequest struct {
-	AudioURL          string `json:"audio_url"`
-	SpeakerLabels     bool   `json:"speaker_labels,omitempty"`
-	LanguageDetection bool   `json:"language_detection,omitempty"`
-	WebhookURL        string `json:"webhook_url,omitempty"`
-	WebhookAuthHeader string `json:"webhook_auth_header_name,omitempty"`
+	AudioURL          string            `json:"audio_url"`
+	SpeakerLabels     bool              `json:"speaker_labels,omitempty"`
+	LanguageDetection bool              `json:"language_detection,omitempty"`
+	WebhookURL        string            `json:"webhook_url,omitempty"`
+	WebhookAuthHeader string            `json:"webhook_auth_header_name,omitempty"`
 	Metadata          map[string]string `json:"metadata,omitempty"`
 }
 
