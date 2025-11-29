@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/johnquangdev/meeting-assistant/internal/domain/entities"
 	"github.com/johnquangdev/meeting-assistant/internal/usecase/auth"
 	"github.com/labstack/echo/v4"
@@ -115,10 +116,24 @@ func EchoAuth(oauthService *auth.OAuthService) echo.MiddlewareFunc {
 					token = parts[1]
 				}
 			}
+			// If a session_id cookie exists, prefer server-side session validation
 			if token == "" {
-				// try cookie
-				if cookie, err := c.Cookie("access_token"); err == nil {
-					token = cookie.Value
+				if cookie, err := c.Cookie("session_id"); err == nil && cookie.Value != "" {
+					// validate session id
+					if sid, err := uuid.Parse(cookie.Value); err == nil {
+						user, err := oauthService.ValidateSessionByID(c.Request().Context(), sid)
+						if err == nil {
+							c.Set("user", user)
+							c.Set("user_id", user.ID)
+							return next(c)
+						}
+					}
+				}
+				// fallback to access_token cookie
+				if token == "" {
+					if cookie, err := c.Cookie("access_token"); err == nil {
+						token = cookie.Value
+					}
 				}
 			}
 

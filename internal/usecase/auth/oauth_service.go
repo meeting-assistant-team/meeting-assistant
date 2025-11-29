@@ -71,10 +71,10 @@ type GoogleCallbackRequest struct {
 
 // AuthResponse represents the authentication response
 type AuthResponse struct {
-	User         *entities.User `json:"user"`
-	AccessToken  string         `json:"access_token"`
-	RefreshToken string         `json:"refresh_token,omitempty"`
-	ExpiresIn    int64          `json:"expires_in"`
+	User        *entities.User `json:"user"`
+	AccessToken string         `json:"access_token"`
+	ExpiresIn   int64          `json:"expires_in"`
+	SessionID   string         `json:"session_id,omitempty"`
 }
 
 // HandleGoogleCallback handles the OAuth callback from Google
@@ -190,10 +190,10 @@ func (s *OAuthService) HandleGoogleCallback(ctx context.Context, req *GoogleCall
 	}
 
 	return &AuthResponse{
-		User:         user,
-		AccessToken:  accessToken,
-		RefreshToken: refreshToken,
-		ExpiresIn:    int64(s.jwtManager.GetAccessExpiry().Seconds()),
+		User:        user,
+		AccessToken: accessToken,
+		ExpiresIn:   int64(s.jwtManager.GetAccessExpiry().Seconds()),
+		SessionID:   session.ID.String(),
 	}, nil
 }
 
@@ -239,6 +239,54 @@ func (s *OAuthService) RefreshAccessToken(ctx context.Context, refreshToken stri
 	if err := s.cache.SaveAccessToken(ctx, user.ID, newAccessToken, s.jwtManager.GetAccessExpiry()); err != nil {
 		return nil, fmt.Errorf("failed to save new access token to redis: %w", err)
 	}
+	return &AuthResponse{
+		User:        user,
+		AccessToken: newAccessToken,
+		ExpiresIn:   int64(s.jwtManager.GetAccessExpiry().Seconds()),
+	}, nil
+}
+
+// RefreshAccessTokenBySessionID refreshes access token using a session ID stored server-side
+func (s *OAuthService) RefreshAccessTokenBySessionID(ctx context.Context, sessionID uuid.UUID) (*AuthResponse, error) {
+	// Check repos
+	if s.sessionRepo == nil || s.userRepo == nil {
+		return nil, fmt.Errorf("database not initialized: cannot refresh token without DB")
+	}
+
+	// Find session by ID
+	session, err := s.sessionRepo.FindByID(ctx, sessionID)
+	if err != nil {
+		return nil, entities.ErrSessionNotFound
+	}
+
+	// Check if session is expired or revoked
+	if session.IsExpired() {
+		return nil, entities.ErrSessionExpired
+	}
+	if session.RevokedAt != nil {
+		return nil, entities.ErrInvalidToken
+	}
+
+	// Update last used (non-fatal)
+	_ = s.sessionRepo.UpdateLastUsed(ctx, session.ID)
+
+	// Find user
+	user, err := s.userRepo.FindByID(ctx, session.UserID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find user: %w", err)
+	}
+
+	// Generate new access token
+	newAccessToken, err := s.jwtManager.GenerateAccessToken(user.ID, user.Email, string(user.Role))
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate access token: %w", err)
+	}
+
+	// Save to redis
+	if err := s.cache.SaveAccessToken(ctx, user.ID, newAccessToken, s.jwtManager.GetAccessExpiry()); err != nil {
+		return nil, fmt.Errorf("failed to save new access token to redis: %w", err)
+	}
+
 	return &AuthResponse{
 		User:        user,
 		AccessToken: newAccessToken,
@@ -300,4 +348,35 @@ func (s *OAuthService) LogoutAll(ctx context.Context, userID uuid.UUID) error {
 	}
 
 	return s.sessionRepo.RevokeAllByUserID(ctx, userID)
+}
+
+// RevokeSessionByID revokes a session by its UUID
+func (s *OAuthService) RevokeSessionByID(ctx context.Context, sessionID uuid.UUID) error {
+	if s.sessionRepo == nil {
+		return fmt.Errorf("database not initialized: cannot revoke session without DB")
+	}
+	return s.sessionRepo.Revoke(ctx, sessionID)
+}
+
+// ValidateSessionByID validates a session by its session ID and returns the associated user
+func (s *OAuthService) ValidateSessionByID(ctx context.Context, sessionID uuid.UUID) (*entities.User, error) {
+	if s.sessionRepo == nil || s.userRepo == nil {
+		return nil, fmt.Errorf("database not initialized: cannot validate session")
+	}
+
+	session, err := s.sessionRepo.FindByID(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+
+	if !session.IsValid() {
+		return nil, entities.ErrSessionExpired
+	}
+
+	user, err := s.userRepo.FindByID(ctx, session.UserID)
+	if err != nil {
+		return nil, err
+	}
+
+	return user, nil
 }

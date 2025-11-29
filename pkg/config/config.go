@@ -29,6 +29,13 @@ type ServerConfig struct {
 	Environment     string   `envconfig:"ENVIRONMENT"`
 	AllowedOrigins  []string `envconfig:"ALLOWED_ORIGINS" split_words:"true"`
 	ShutdownTimeout int      `envconfig:"SHUTDOWN_TIMEOUT" default:"15"`
+	// FrontendURL is the URL of the frontend application (used for redirects after login)
+	FrontendURL string `envconfig:"FRONTEND_URL" default:"http://localhost:3000"`
+	// Cookie settings for authentication cookies
+	CookieDomain   string `envconfig:"COOKIE_DOMAIN"`
+	CookiePath     string `envconfig:"COOKIE_PATH" default:"/"`
+	CookieSecure   bool   `envconfig:"COOKIE_SECURE" default:"true"`
+	CookieSameSite string `envconfig:"COOKIE_SAME_SITE" default:"lax"`
 }
 
 // DatabaseConfig holds database configuration

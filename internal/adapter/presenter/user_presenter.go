@@ -67,8 +67,8 @@ func ToAuthResponse(usecaseResp *auth.AuthResponse) *authDTO.AuthResponse {
 	}
 
 	return &authDTO.AuthResponse{
-		AccessToken:  usecaseResp.AccessToken,
-		RefreshToken: usecaseResp.RefreshToken,
+		AccessToken:  "",
+		RefreshToken: "",
 		ExpiresIn:    int(usecaseResp.ExpiresIn),
 		TokenType:    "Bearer",
 		User:         ToUserResponse(usecaseResp.User),
