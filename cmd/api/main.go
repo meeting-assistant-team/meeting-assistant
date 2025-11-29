@@ -28,7 +28,6 @@ import (
 	pkgai "github.com/johnquangdev/meeting-assistant/pkg/ai"
 	"github.com/johnquangdev/meeting-assistant/pkg/config"
 	"github.com/johnquangdev/meeting-assistant/pkg/jwt"
-	"go.uber.org/zap"
 )
 
 // @title           Meeting Assistant API
@@ -78,17 +77,11 @@ func main() {
 
 	// CORS middleware
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
-		AllowOrigins: cfg.Server.AllowedOrigins,
-		AllowMethods: []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch},
-		AllowHeaders: []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAccept, echo.HeaderAuthorization},
+		AllowOrigins:     cfg.Server.AllowedOrigins,
+		AllowMethods:     []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch},
+		AllowHeaders:     []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAccept, echo.HeaderAuthorization, "Set-Cookie", "Cookie"},
+		AllowCredentials: true,
 	}))
-
-	// Initialize structured logger (zap) for handlers
-	logger, zapErr := zap.NewProduction()
-	if zapErr != nil {
-		log.Fatalf("failed to create logger: %v", zapErr)
-	}
-	defer logger.Sync()
 
 	// Initialize dependencies
 	log.Println("🔧 Initializing dependencies...")
@@ -136,8 +129,8 @@ func main() {
 	asmClient := pkgai.NewAssemblyAIClient(&cfg.Assembly)
 	groqClient := pkgai.NewGroqClient(&cfg.Groq)
 	aiService := aiuse.NewAIService(aiRepo, asmClient, groqClient, cfg)
-	aiController := handler.NewAIController(aiService, logger)
-	aiWebhookHandler := handler.NewAIWebhookHandler(aiService, cfg.Assembly.WebhookSecret, logger)
+	aiController := handler.NewAIController(aiService)
+	aiWebhookHandler := handler.NewAIWebhookHandler(aiService, cfg.Assembly.WebhookSecret)
 
 	// Initialize OAuth provider
 	log.Println("🔐 Initializing OAuth provider...")
@@ -173,7 +166,7 @@ func main() {
 
 	// Initialize auth handler
 	log.Println("🚀 Initializing auth handler...")
-	authHandler := handler.NewAuth(oauthService, logger)
+	authHandler := handler.NewAuth(oauthService, logger, cfg)
 	log.Println("✅ Auth handler initialized successfully")
 
 	// Initialize LiveKit client
@@ -196,12 +189,12 @@ func main() {
 
 	// Initialize room handler
 	log.Println("🚪 Initializing room handler...")
-	roomHandler := handler.NewRoomHandler(roomService, logger)
+	roomHandler := handler.NewRoomHandler(roomService)
 	log.Println("✅ Room handler initialized successfully")
 
 	// Initialize webhook handler (for LiveKit webhooks)
 	log.Println("🪝 Initializing webhook handler...")
-	webhookHandler := handler.NewWebhookHandler(roomService, cfg.LiveKit.WebhookSecret, logger)
+	webhookHandler := handler.NewWebhookHandler(roomService, cfg.LiveKit.WebhookSecret)
 	log.Println("✅ Webhook handler initialized successfully")
 
 	// Setup router with handlers
