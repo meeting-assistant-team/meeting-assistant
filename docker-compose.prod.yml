@@ -33,9 +33,7 @@ services:
       retries: 5
 
   app:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ghcr.io/meeting-assistant-team/meeting-assistant:latest
     container_name: meeting-assistant-app-prod
     restart: always
     ports:

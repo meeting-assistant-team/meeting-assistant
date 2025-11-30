@@ -65,6 +65,12 @@ jobs:
             docker login ghcr.io -u "${{ secrets.GHCR_USERNAME }}" -p "${{ secrets.GHCR_PASSWORD }}"
             cd ${{ secrets.PROJECT_PATH }}
 
+            # Ensure docker-compose.prod.yml exists on the server
+            if [ ! -f "docker-compose.prod.yml" ]; then
+              echo "docker-compose.prod.yml not found on server. Please ensure it is copied."
+              exit 1
+            fi
+
             # Determine which tag to deploy
             if [[ "${{ github.ref }}" == refs/tags/* ]]; then
               TAG="${{ github.ref_name }}"
@@ -75,6 +81,9 @@ jobs:
             # Update docker-compose.prod.yml with new image tag
             sed -i "s|image: ghcr.io/meeting-assistant-team/meeting-assistant:.*|image: ghcr.io/meeting-assistant-team/meeting-assistant:${TAG}|g" docker-compose.prod.yml
 
+            # Pull and deploy the app
             docker compose -f docker-compose.prod.yml pull app
             docker compose -f docker-compose.prod.yml up -d app
-            docker images | grep "ghcr.io/meeting-assistant-team" | grep -v "latest" | awk '{print $3}' | xargs --no-run-if-empty docker rmi
+
+            # Clean up unused images
+            docker images | grep "ghcr.io/meeting-assistant-team" | grep -v "${TAG}" | awk '{print $3}' | xargs --no-run-if-empty docker rmi
