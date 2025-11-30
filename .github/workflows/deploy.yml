@@ -63,13 +63,15 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
             docker login ghcr.io -u "${{ secrets.GHCR_USERNAME }}" -p "${{ secrets.GHCR_PASSWORD }}"
-            cd ${{ secrets.PROJECT_PATH }}
 
-            # Ensure docker-compose.prod.yml exists on the server
-            if [ ! -f "docker-compose.prod.yml" ]; then
-              echo "docker-compose.prod.yml not found on server. Please ensure it is copied."
-              exit 1
-            fi
+            # Create a directory for the project on the server
+            ssh ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }} "mkdir -p ~/meeting-assistant-be"
+
+            # Copy docker-compose.prod.yml to the new directory
+            scp docker-compose.prod.yml ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }}:~/meeting-assistant-be/docker-compose.prod.yml
+
+            # Ensure docker-compose.prod.yml exists in the new directory
+            ssh ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }} "if [ ! -f ~/meeting-assistant-be/docker-compose.prod.yml ]; then echo 'docker-compose.prod.yml not found in meeting-assistant-be directory'; exit 1; fi"
 
             # Determine which tag to deploy
             if [[ "${{ github.ref }}" == refs/tags/* ]]; then
@@ -79,11 +81,10 @@ jobs:
             fi
 
             # Update docker-compose.prod.yml with new image tag
-            sed -i "s|image: ghcr.io/meeting-assistant-team/meeting-assistant:.*|image: ghcr.io/meeting-assistant-team/meeting-assistant:${TAG}|g" docker-compose.prod.yml
+            ssh ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }} "sed -i 's|image: ghcr.io/meeting-assistant-team/meeting-assistant:.*|image: ghcr.io/meeting-assistant-team/meeting-assistant:${TAG}|g' ~/meeting-assistant-be/docker-compose.prod.yml"
 
             # Pull and deploy the app
-            docker compose -f docker-compose.prod.yml pull app
-            docker compose -f docker-compose.prod.yml up -d app
+            ssh ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }} "docker compose -f ~/meeting-assistant-be/docker-compose.prod.yml pull app && docker compose -f ~/meeting-assistant-be/docker-compose.prod.yml up -d app"
 
             # Clean up unused images
-            docker images | grep "ghcr.io/meeting-assistant-team" | grep -v "${TAG}" | awk '{print $3}' | xargs --no-run-if-empty docker rmi
+            ssh ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }} "docker images | grep 'ghcr.io/meeting-assistant-team' | grep -v '${TAG}' | awk '{print $3}' | xargs --no-run-if-empty docker rmi"
