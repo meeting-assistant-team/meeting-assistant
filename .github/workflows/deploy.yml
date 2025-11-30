@@ -72,9 +72,9 @@ jobs:
               TAG="latest"
             fi
 
-            # Update docker-compose.yml with new image tag
-            sed -i "s|image: ghcr.io/meeting-assistant-team/meeting-assistant:.*|image: ghcr.io/meeting-assistant-team/meeting-assistant:${TAG}|g" docker-compose.yml
+            # Update docker-compose.prod.yml with new image tag
+            sed -i "s|image: ghcr.io/meeting-assistant-team/meeting-assistant:.*|image: ghcr.io/meeting-assistant-team/meeting-assistant:${TAG}|g" docker-compose.prod.yml
 
-            docker compose pull app
-            docker compose up -d app
+            docker compose -f docker-compose.prod.yml pull app
+            docker compose -f docker-compose.prod.yml up -d app
             docker images | grep "ghcr.io/meeting-assistant-team" | grep -v "latest" | awk '{print $3}' | xargs --no-run-if-empty docker rmi
