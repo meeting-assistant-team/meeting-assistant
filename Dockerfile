@@ -19,6 +19,9 @@ COPY . .
 # Build the application
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -ldflags="-w -s" -o /app/bin/meeting-assistant ./cmd/api/main.go
 
+# Build migration tool
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -ldflags="-w -s" -o /app/bin/migrate ./scripts/migrate.go
+
 # Runtime stage
 FROM alpine:3.18
 
@@ -34,8 +37,9 @@ WORKDIR /app
 
 # Copy binary from builder
 COPY --from=builder /app/bin/meeting-assistant .
+COPY --from=builder /app/bin/migrate .
 
-# Copy migrations (if needed)
+# Copy migrations
 COPY --from=builder /app/migrations ./migrations
 
 # Create logs directory
@@ -51,5 +55,5 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8080/health || exit 1
 
-# Run the application
-CMD ["./meeting-assistant"]
+# Run migrations then start the application
+CMD ["sh", "-c", "./migrate && ./meeting-assistant"]
