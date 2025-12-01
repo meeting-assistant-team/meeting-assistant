@@ -114,8 +114,7 @@ func (h *Auth) GoogleCallback(c echo.Context) error {
 
 	c.SetCookie(sessionCookie)
 
-	// Redirect to frontend callback path (explicitly to localhost:5173 as requested)
-	redirectTarget := "http://localhost:5173/auth/callback"
+	redirectTarget := "https://meeting-assistant.infoquang.id.vn/auth/callback"
 	return c.Redirect(http.StatusTemporaryRedirect, redirectTarget)
 }
 
