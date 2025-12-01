@@ -78,6 +78,16 @@ jobs:
             mkdir -p /opt/apps/meeting-assistant-be
             cd /opt/apps/meeting-assistant-be
 
+            # List files in directory to debug
+            echo "Files in /opt/apps/meeting-assistant-be:"
+            ls -la
+
+            # Check if docker-compose.prod.yml exists
+            if [ ! -f docker-compose.prod.yml ]; then
+              echo "ERROR: docker-compose.prod.yml not found!"
+              exit 1
+            fi
+
             # Login to GHCR
             docker login ghcr.io -u "${{ secrets.GHCR_USERNAME }}" -p "${{ secrets.GHCR_PASSWORD }}"
 
@@ -91,9 +101,13 @@ jobs:
             # Update docker-compose.prod.yml with new image tag
             sed -i "s|image: ghcr.io/meeting-assistant-team/meeting-assistant:.*|image: ghcr.io/meeting-assistant-team/meeting-assistant:${TAG}|g" docker-compose.prod.yml
 
+            # Display the updated file
+            echo "Updated docker-compose.prod.yml:"
+            cat docker-compose.prod.yml
+
             # Pull and deploy
-            docker compose pull app
-            docker compose up -d app
+            docker compose -f docker-compose.prod.yml pull app
+            docker compose -f docker-compose.prod.yml up -d app
 
             # Clean up unused images
             docker images | grep "ghcr.io/meeting-assistant-team" | grep -v "${TAG}" | awk '{print $3}' | xargs --no-run-if-empty docker rmi
