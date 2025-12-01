@@ -55,6 +55,18 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Copy docker-compose.prod.yml to server
+        uses: appleboy/scp-action@v0.1.4
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: "docker-compose.prod.yml"
+          target: "/opt/apps/meeting-assistant-be/"
+
       - name: Deploy to server
         uses: appleboy/ssh-action@v1.1.0
         with:
@@ -62,8 +74,12 @@ jobs:
           username: ${{ secrets.SSH_USERNAME }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
+            # Create project directory if not exists
+            mkdir -p /opt/apps/meeting-assistant-be
+            cd /opt/apps/meeting-assistant-be
+
+            # Login to GHCR
             docker login ghcr.io -u "${{ secrets.GHCR_USERNAME }}" -p "${{ secrets.GHCR_PASSWORD }}"
-            cd ~/meeting-assistant-be
 
             # Determine which tag to deploy
             if [[ "${{ github.ref }}" == refs/tags/* ]]; then
@@ -75,6 +91,9 @@ jobs:
             # Update docker-compose.prod.yml with new image tag
             sed -i "s|image: ghcr.io/meeting-assistant-team/meeting-assistant:.*|image: ghcr.io/meeting-assistant-team/meeting-assistant:${TAG}|g" docker-compose.prod.yml
 
+            # Pull and deploy
             docker compose pull app
             docker compose up -d app
+
+            # Clean up unused images
             docker images | grep "ghcr.io/meeting-assistant-team" | grep -v "${TAG}" | awk '{print $3}' | xargs --no-run-if-empty docker rmi
