@@ -55,19 +55,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Copy files to server
-        uses: appleboy/scp-action@v0.1.4
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USERNAME }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          source: "docker-compose.prod.yml"
-          target: "~/meeting-assistant-be"
-
-      - name: SSH to server and deploy
+      - name: Deploy to server
         uses: appleboy/ssh-action@v1.1.0
         with:
           host: ${{ secrets.SSH_HOST }}
@@ -75,15 +63,7 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
             docker login ghcr.io -u "${{ secrets.GHCR_USERNAME }}" -p "${{ secrets.GHCR_PASSWORD }}"
-
-            # Create a directory for the project on the server
-            mkdir -p ~/meeting-assistant-be
-
-            # Ensure docker-compose.prod.yml exists in the new directory
-            if [ ! -f ~/meeting-assistant-be/docker-compose.prod.yml ]; then
-              echo "docker-compose.prod.yml not found in meeting-assistant-be directory"
-              exit 1
-            fi
+            cd ~/meeting-assistant-be
 
             # Determine which tag to deploy
             if [[ "${{ github.ref }}" == refs/tags/* ]]; then
@@ -93,11 +73,8 @@ jobs:
             fi
 
             # Update docker-compose.prod.yml with new image tag
-            sed -i "s|image: ghcr.io/meeting-assistant-team/meeting-assistant:.*|image: ghcr.io/meeting-assistant-team/meeting-assistant:${TAG}|g" ~/meeting-assistant-be/docker-compose.prod.yml
+            sed -i "s|image: ghcr.io/meeting-assistant-team/meeting-assistant:.*|image: ghcr.io/meeting-assistant-team/meeting-assistant:${TAG}|g" docker-compose.prod.yml
 
-            # Pull and deploy the app
-            docker compose -f ~/meeting-assistant-be/docker-compose.prod.yml pull app
-            docker compose -f ~/meeting-assistant-be/docker-compose.prod.yml up -d app
-
-            # Clean up unused images
+            docker compose pull app
+            docker compose up -d app
             docker images | grep "ghcr.io/meeting-assistant-team" | grep -v "${TAG}" | awk '{print $3}' | xargs --no-run-if-empty docker rmi
