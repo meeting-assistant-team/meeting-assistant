@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 
 	"github.com/johnquangdev/meeting-assistant/internal/domain/entities"
@@ -15,6 +16,7 @@ type aiRepository struct {
 }
 
 // NewAIRepository creates a new AI repository backed by GORM
+// DEPRECATED: Use AIJobRepository and TranscriptRepository instead
 func NewAIRepository(db *gorm.DB) repo.AIRepository {
 	return &aiRepository{db: db}
 }
@@ -63,8 +65,10 @@ func (r *aiRepository) GetTranscriptByRecordingID(recordingID string) (*entities
 		_ = json.Unmarshal([]byte(res.Words), &words)
 	}
 
+	// Parse ID as UUID
+	id, _ := uuid.Parse(res.ID)
 	t := &entities.Transcript{
-		ID:           res.ID,
+		ID:           id,
 		RecordingID:  res.RecordingID,
 		RoomID:       res.RoomID,
 		Text:         res.Text,

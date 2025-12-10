@@ -23,6 +23,16 @@ func NewAIWebhookHandler(svc aiuse.Service, secret string, logger *zap.Logger) *
 }
 
 // HandleAssemblyAIWebhook receives webhooks from AssemblyAI
+// @Summary      AssemblyAI Webhook
+// @Description  Receives webhook events from AssemblyAI when transcription completes
+// @Tags         Webhooks
+// @Accept       json
+// @Produce      json
+// @Param        x-assemblyai-signature  header    string  false  "Signature header for webhook verification"
+// @Success      200                     {object}  map[string]interface{}  "Webhook processed"
+// @Failure      400                     {object}  map[string]interface{}  "Invalid payload"
+// @Failure      500                     {object}  map[string]interface{}  "Webhook processing failed"
+// @Router       /webhooks/assemblyai [post]
 func (h *AIWebhookHandler) HandleAssemblyAIWebhook(c echo.Context) error {
 	body, err := io.ReadAll(c.Request().Body)
 	if err != nil {

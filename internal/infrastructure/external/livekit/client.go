@@ -17,13 +17,15 @@ type Client interface {
 	DeleteRoom(ctx context.Context, roomName string) error
 	GenerateToken(userID, roomName, participantName string, options *TokenOptions) (string, error)
 	ListParticipants(ctx context.Context, roomName string) ([]*ParticipantInfo, error)
+	RemoveParticipant(ctx context.Context, roomName, identity string) error
 }
 
 // CreateRoomOptions holds options for creating a room
 type CreateRoomOptions struct {
-	MaxParticipants int32
-	EmptyTimeout    int32 // seconds
-	Metadata        string
+	MaxParticipants  int32
+	EmptyTimeout     int32 // seconds - auto-delete if no one joins
+	DepartureTimeout int32 // seconds - auto-delete after last participant leaves
+	Metadata         string
 }
 
 // TokenOptions holds options for generating access token
@@ -57,10 +59,11 @@ type ParticipantInfo struct {
 
 // realClient is the real LiveKit client implementation
 type realClient struct {
-	roomClient *lksdk.RoomServiceClient
-	apiKey     string
-	apiSecret  string
-	url        string
+	roomClient   *lksdk.RoomServiceClient
+	egressClient *lksdk.EgressClient
+	apiKey       string
+	apiSecret    string
+	url          string
 }
 
 // NewClient creates a new LiveKit client
@@ -74,11 +77,13 @@ func NewClient(url, apiKey, apiSecret string, useMock bool) Client {
 	}
 
 	roomClient := lksdk.NewRoomServiceClient(url, apiKey, apiSecret)
+	egressClient := lksdk.NewEgressClient(url, apiKey, apiSecret)
 	return &realClient{
-		roomClient: roomClient,
-		apiKey:     apiKey,
-		apiSecret:  apiSecret,
-		url:        url,
+		roomClient:   roomClient,
+		egressClient: egressClient,
+		apiKey:       apiKey,
+		apiSecret:    apiSecret,
+		url:          url,
 	}
 }
 
@@ -86,16 +91,18 @@ func NewClient(url, apiKey, apiSecret string, useMock bool) Client {
 func (c *realClient) CreateRoom(ctx context.Context, name string, options *CreateRoomOptions) (*RoomInfo, error) {
 	if options == nil {
 		options = &CreateRoomOptions{
-			MaxParticipants: 10,
-			EmptyTimeout:    300, // 5 minutes
+			MaxParticipants:  10,
+			EmptyTimeout:     300, // 5 minutes
+			DepartureTimeout: 30,  // 30 seconds
 		}
 	}
 
 	req := &livekit.CreateRoomRequest{
-		Name:            name,
-		MaxParticipants: uint32(options.MaxParticipants),
-		EmptyTimeout:    uint32(options.EmptyTimeout),
-		Metadata:        options.Metadata,
+		Name:             name,
+		MaxParticipants:  uint32(options.MaxParticipants),
+		EmptyTimeout:     uint32(options.EmptyTimeout),
+		DepartureTimeout: uint32(options.DepartureTimeout),
+		Metadata:         options.Metadata,
 	}
 
 	room, err := c.roomClient.CreateRoom(ctx, req)
@@ -120,6 +127,18 @@ func (c *realClient) DeleteRoom(ctx context.Context, roomName string) error {
 	})
 	if err != nil {
 		return fmt.Errorf("failed to delete room: %w", err)
+	}
+	return nil
+}
+
+// RemoveParticipant removes a participant from a room
+func (c *realClient) RemoveParticipant(ctx context.Context, roomName, identity string) error {
+	_, err := c.roomClient.RemoveParticipant(ctx, &livekit.RoomParticipantIdentity{
+		Room:     roomName,
+		Identity: identity,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to remove participant: %w", err)
 	}
 	return nil
 }
@@ -260,4 +279,16 @@ func (m *mockClient) GenerateToken(userID, roomName, participantName string, opt
 // ListParticipants (mock) returns empty list
 func (m *mockClient) ListParticipants(ctx context.Context, roomName string) ([]*ParticipantInfo, error) {
 	return []*ParticipantInfo{}, nil
+}
+
+// RemoveParticipant (mock) simulates participant removal
+func (m *mockClient) RemoveParticipant(ctx context.Context, roomName, identity string) error {
+	// Mock: always succeed
+	return nil
+}
+
+// StartRoomCompositeEgress (mock) simulates starting recording
+func (m *mockClient) StartRoomCompositeEgress(ctx context.Context, roomName, outputDir string) (string, error) {
+	// Mock: return fake egress ID
+	return "EG_mock_" + uuid.New().String(), nil
 }

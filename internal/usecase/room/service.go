@@ -37,8 +37,8 @@ type Service interface {
 	// GetWaitingParticipants retrieves all waiting participants in a room
 	GetWaitingParticipants(ctx context.Context, roomID, hostID uuid.UUID) ([]*entities.Participant, error)
 
-	// AdmitParticipant admits a waiting participant into the room
-	AdmitParticipant(ctx context.Context, roomID, hostID, participantID uuid.UUID) error
+	// AdmitParticipant admits a waiting participant into the room and returns LiveKit access token
+	AdmitParticipant(ctx context.Context, roomID, hostID, participantID uuid.UUID) (string, error)
 
 	// DenyParticipant denies a waiting participant from joining the room
 	DenyParticipant(ctx context.Context, roomID, hostID, participantID uuid.UUID, reason string) error

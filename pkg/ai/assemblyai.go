@@ -3,6 +3,9 @@ package ai
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -14,23 +17,29 @@ import (
 
 // Client is a minimal AssemblyAI client
 type AssemblyAIClient struct {
-	apiKey string
-	client *http.Client
+	apiKey        string
+	client        *http.Client
+	webhookSecret string
 }
 
 // NewAssemblyAIClient creates an AssemblyAI client using the provided config.
 // If cfg is nil, falls back to environment variables.
 func NewAssemblyAIClient(cfg *config.AssemblyAIConfig) *AssemblyAIClient {
-	var apiKey string
+	var apiKey, webhookSecret string
 	if cfg != nil {
 		apiKey = cfg.APIKey
+		webhookSecret = cfg.WebhookSecret
 	}
 	if apiKey == "" {
 		apiKey = os.Getenv("ASSEMBLYAI_API_KEY")
 	}
+	if webhookSecret == "" {
+		webhookSecret = os.Getenv("ASSEMBLYAI_WEBHOOK_SECRET")
+	}
 	return &AssemblyAIClient{
-		apiKey: apiKey,
-		client: &http.Client{Timeout: 30 * time.Second},
+		apiKey:        apiKey,
+		client:        &http.Client{Timeout: 30 * time.Second},
+		webhookSecret: webhookSecret,
 	}
 }
 
@@ -88,4 +97,47 @@ func (c *AssemblyAIClient) TranscribeAudio(ctx context.Context, recordingURL, we
 		return "", err
 	}
 	return tr.ID, nil
+}
+
+// GetTranscript retrieves a transcript by ID with full details
+func (c *AssemblyAIClient) GetTranscript(ctx context.Context, transcriptID string) (map[string]interface{}, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", "https://api.assemblyai.com/v2/transcripts/"+transcriptID, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", c.apiKey)
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("assemblyai returned status %d", resp.StatusCode)
+	}
+
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// VerifyWebhookSignature verifies the webhook signature from AssemblyAI
+func (c *AssemblyAIClient) VerifyWebhookSignature(payload []byte, signature string) bool {
+	if c.webhookSecret == "" {
+		// If no secret configured, skip verification
+		return true
+	}
+
+	expectedSignature := c.computeSignature(payload)
+	return hmac.Equal([]byte(signature), []byte(expectedSignature))
+}
+
+// computeSignature computes HMAC-SHA256 signature
+func (c *AssemblyAIClient) computeSignature(payload []byte) string {
+	h := hmac.New(sha256.New, []byte(c.webhookSecret))
+	h.Write(payload)
+	return hex.EncodeToString(h.Sum(nil))
 }
