@@ -317,16 +317,10 @@ func (h *Room) GetParticipants(c echo.Context) error {
 	return h.handleSuccess(c, presenter.ToParticipantListResponse(participants))
 }
 
-// RemoveParticipant handles DELETE /rooms/:id/participants/:pid
-// @Summary      Remove a participant
-// @Description  Removes a participant from the room (host/co-host only)
+// GetWaitingParticipants handles GET /rooms/:id/participants/waiting
+// @Summary      Get waiting participants
+// @Description  Gets a list of participants waiting for approval in a room (host only)
 // @Tags         Participants
-// @Accept       json
-// RemoveParticipant handles DELETE /rooms/:id/participants/:pid
-// @Summary      Remove a participant
-// @Description  Removes a participant from the room (host/co-host only)
-// @Tags         Participants
-// @Accept       json
 // @Produce      json
 // @Security     BearerAuth
 // @Param        id   path      string  true  "Room ID (UUID)"
@@ -402,11 +396,10 @@ func (h *Room) TransferHost(c echo.Context) error {
 	return h.handleSuccess(c, map[string]string{"message": "host transferred successfully"})
 }
 
-// RemoveParticipant handles DELETE /rooms/:id/participants/:pid
-// @Summary      Remove a participant
-// @Description  Removes a participant from the room (host/co-host only)
+// AdmitParticipant handles POST /rooms/:id/participants/:pid/admit
+// @Summary      Admit participant
+// @Description  Admits a waiting participant to join the room (host only)
 // @Tags         Participants
-// @Accept       json
 // @Produce      json
 // @Security     BearerAuth
 // @Param        id   path      string  true  "Room ID (UUID)"
@@ -433,16 +426,14 @@ func (h *Room) AdmitParticipant(c echo.Context) error {
 		return h.handleError(c, errors.ErrUnauthenticated().WithDetail("error", "User not authenticated"))
 	}
 
-	var req room.RemoveParticipantRequest
-	if err := c.Bind(&req); err != nil {
-		return h.handleError(c, errors.ErrInvalidArgument("Invalid request body").WithDetail("error", err.Error()))
-	}
-
-	if err := h.roomService.RemoveParticipant(c.Request().Context(), roomID, userID, participantID, req.Reason); err != nil {
+	accessToken, err := h.roomService.AdmitParticipant(c.Request().Context(), roomID, userID, participantID)
+	if err != nil {
 		return h.handleError(c, err)
 	}
+
 	return h.handleSuccess(c, map[string]interface{}{
-		"message": "participant removed successfully",
+		"message":     "participant admitted successfully",
+		"accessToken": accessToken,
 	})
 }
 

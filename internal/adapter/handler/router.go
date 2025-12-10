@@ -27,10 +27,13 @@ type Router struct {
 // NewRouter creates a new router with all handlers
 func NewRouter(cfg *config.Config, authHandler *Auth, roomHandler *Room, webhookHandler *WebhookHandler, aiWebhookHandler *AIWebhookHandler, aiController *AIController, authMW echo.MiddlewareFunc) *Router {
 	return &Router{
-		cfg:         cfg,
-		authHandler: authHandler,
-		roomHandler: roomHandler,
-		authMW:      authMW,
+		cfg:              cfg,
+		authHandler:      authHandler,
+		roomHandler:      roomHandler,
+		webhookHandler:   webhookHandler,
+		aiWebhookHandler: aiWebhookHandler,
+		aiController:     aiController,
+		authMW:           authMW,
 	}
 }
 
@@ -94,7 +97,7 @@ func (rt *Router) notImplemented(c echo.Context) error {
 func (rt *Router) healthCheck(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]interface{}{
 		"status":      "ok",
-		"environment": "production",
+		"environment": "development",
 	})
 }
 
@@ -143,7 +146,8 @@ func (rt *Router) setupWebhookRoutes(g *echo.Group) {
 
 	if rt.webhookHandler != nil {
 		// LiveKit webhook endpoint (public - LiveKit will call this)
-		webhookGroup.POST("/livekit", rt.webhookHandler.HandleLiveKitWebhook)
+		// Uses proper JWT signature validation
+		webhookGroup.POST("/livekit", rt.webhookHandler.HandleLiveKitWebhookV2)
 	} else {
 		webhookGroup.POST("/livekit", rt.notImplemented)
 	}
