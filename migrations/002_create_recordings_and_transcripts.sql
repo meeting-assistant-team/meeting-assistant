@@ -63,16 +63,19 @@ CREATE TABLE transcripts (
     -- Primary Key
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     
-    -- References
-    recording_id UUID NOT NULL REFERENCES recordings(id) ON DELETE CASCADE,
-    room_id UUID NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+    -- References (meeting_id, not room_id for Phase 1)
+    meeting_id UUID NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+    
+    -- Legacy references (optional, for backward compatibility)
+    recording_id VARCHAR(255),
+    room_id VARCHAR(255),
     
     -- Content
-    text TEXT NOT NULL,
-    language VARCHAR(10) NOT NULL DEFAULT 'en',
+    text TEXT,
+    language VARCHAR(20),
     
     -- Detailed Segments
-    segments JSONB NOT NULL DEFAULT '[]'::jsonb,
+    segments JSONB DEFAULT '[]'::jsonb,
     
     -- Word-level Timestamps
     words JSONB,
@@ -84,25 +87,26 @@ CREATE TABLE transcripts (
     
     -- Processing Info
     processing_time INT,
-    model_used VARCHAR(50),
+    model_used VARCHAR(100) DEFAULT 'assemblyai',
+    
+    -- Raw response from AssemblyAI
+    raw_data JSONB DEFAULT '{}'::jsonb,
     
     -- Metadata
     metadata JSONB DEFAULT '{}'::jsonb,
     
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW(),
-    
-    -- Constraints
-    CONSTRAINT unique_transcript_per_recording UNIQUE (recording_id)
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 -- Indexes
-CREATE INDEX idx_transcripts_recording ON transcripts(recording_id);
-CREATE INDEX idx_transcripts_room ON transcripts(room_id);
-CREATE INDEX idx_transcripts_language ON transcripts(language);
-CREATE INDEX idx_transcripts_segments ON transcripts USING GIN (segments);
-CREATE INDEX idx_transcripts_text_search ON transcripts USING GIN (to_tsvector('english', text));
+CREATE INDEX IF NOT EXISTS idx_transcripts_meeting ON transcripts(meeting_id);
+CREATE INDEX IF NOT EXISTS idx_transcripts_recording ON transcripts(recording_id);
+CREATE INDEX IF NOT EXISTS idx_transcripts_room ON transcripts(room_id);
+CREATE INDEX IF NOT EXISTS idx_transcripts_language ON transcripts(language);
+CREATE INDEX IF NOT EXISTS idx_transcripts_text_search ON transcripts USING GIN (to_tsvector('english', text));
 
+-- ============================================================================
 -- +migrate Down
 -- Rollback recordings and transcripts tables
 
