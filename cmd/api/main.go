@@ -124,18 +124,19 @@ func main() {
 	sessionRepo := repository.NewSessionRepository(db)
 	roomRepo := repository.NewRoomRepository(db)
 	participantRepo := repository.NewParticipantRepository(db)
+	aiJobRepo := repository.NewAIJobRepository(db)
+	transcriptRepo := repository.NewTranscriptRepository(db)
 
 	// Initialize AI repository and clients
 	log.Println("🤖 Initializing AI components...")
-	aiRepo := repository.NewAIRepository(db)
 	asmClient := pkgai.NewAssemblyAIClient(&cfg.Assembly)
 	groqClient := pkgai.NewGroqClient(&cfg.Groq)
-	aiService := aiuse.NewAIService(aiRepo, asmClient, groqClient, cfg)
 	logger, err := zap.NewProduction()
 	if err != nil {
 		log.Fatalf("Failed to initialize logger: %v", err)
 	}
 	defer logger.Sync()
+	aiService := aiuse.NewAIService(aiJobRepo, transcriptRepo, asmClient, groqClient, cfg, logger)
 	aiController := handler.NewAIController(aiService, logger)
 	aiWebhookHandler := handler.NewAIWebhookHandler(aiService, cfg.Assembly.WebhookSecret, logger)
 
@@ -192,7 +193,7 @@ func main() {
 
 	// Initialize room service
 	log.Println("🏠 Initializing room service...")
-	roomService := room.NewRoomService(roomRepo, participantRepo, livekitClient, cfg.LiveKit.URL)
+	roomService := room.NewRoomService(roomRepo, participantRepo, livekitClient, cfg.LiveKit.URL, cfg)
 
 	// Initialize room handler
 	log.Println("🚪 Initializing room handler...")
@@ -201,7 +202,7 @@ func main() {
 
 	// Initialize webhook handler (for LiveKit webhooks)
 	log.Println("🪝 Initializing webhook handler...")
-	webhookHandler := handler.NewWebhookHandler(roomService, cfg.LiveKit.WebhookSecret, logger)
+	webhookHandler := handler.NewWebhookHandler(roomService, aiService, cfg.LiveKit.APIKey, cfg.LiveKit.APISecret, logger)
 	log.Println("✅ Webhook handler initialized successfully")
 
 	// Setup router with handlers
