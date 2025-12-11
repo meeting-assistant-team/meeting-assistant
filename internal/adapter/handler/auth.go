@@ -33,7 +33,7 @@ func NewAuth(oauthService *authUsecase.OAuthService, logger *zap.Logger, cfg *co
 
 // GoogleLogin handles the initial Google OAuth login request
 // @Summary      Initiate Google OAuth login
-// @Description  Redirects user to Google OAuth consent screen. State stored in Redis (15 min expiry).
+// @Description  Redirects user to Google OAuth consent screen. State stored in-memory (15 min expiry) and as HttpOnly cookie (CSRF protection).
 // @Tags         Authentication
 // @Produce      json
 // @Success      307  {string}  string  "Redirect to Google OAuth consent page"
@@ -47,11 +47,29 @@ func (h *Auth) GoogleLogin(c echo.Context) error {
 		return HandleError(h.logger, c, errors.ErrInternal(err))
 	}
 
-	// State is stored in Redis by stateManager with 15 minute expiration
-	// ValidateState will check Redis during callback (one-time use)
+	// State is stored in-memory by stateManager with 15 minute expiration
+	// Also stored as HttpOnly cookie for additional CSRF protection verification
 	if h.logger != nil {
 		h.logger.Info("generated OAuth state token", zap.String("state_hash", authURL.State[:8]))
 	}
+
+	// Set state as HttpOnly cookie for CSRF verification during callback
+	cookiePath := h.cfg.Server.CookiePath
+	if cookiePath == "" {
+		cookiePath = "/v1"
+	}
+
+	stateCookie := &http.Cookie{
+		Name:     "oauth_state",
+		Value:    authURL.State,
+		Path:     cookiePath,
+		Domain:   h.cfg.Server.CookieDomain,
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteNoneMode,
+		MaxAge:   15 * 60, // 15 minutes, same as state expiration
+	}
+	c.SetCookie(stateCookie)
 
 	// Redirect to Google OAuth
 	return c.Redirect(http.StatusTemporaryRedirect, authURL.URL)
@@ -78,7 +96,19 @@ func (h *Auth) GoogleCallback(c echo.Context) error {
 		return HandleError(h.logger, c, errors.ErrInvalidArgument("Missing code or state parameter"))
 	}
 
-	// Validate state from Redis (one-time use, expires after 15 minutes)
+	// Verify state cookie matches query parameter (CSRF double-check)
+	stateCookie, err := c.Cookie("oauth_state")
+	if err == nil && stateCookie != nil && stateCookie.Value != "" {
+		if stateCookie.Value != state {
+			if h.logger != nil {
+				h.logger.Warn("state mismatch between cookie and query parameter",
+					zap.String("state_hash", state[:8]))
+			}
+			return HandleError(h.logger, c, errors.ErrUnauthenticated().WithDetail("error", "state parameter mismatch - CSRF validation failed"))
+		}
+	}
+
+	// Validate state from in-memory store (one-time use, expires after 15 minutes)
 	if !h.oauthService.ValidateState(state) {
 		if h.logger != nil {
 			h.logger.Warn("state validation failed",
@@ -127,6 +157,18 @@ func (h *Auth) GoogleCallback(c echo.Context) error {
 	}
 
 	c.SetCookie(sessionCookie)
+
+	// Clear oauth_state cookie (one-time use)
+	stateClearCookie := &http.Cookie{
+		Name:     "oauth_state",
+		Value:    "",
+		Path:     cookiePath,
+		Domain:   cookieDomain,
+		HttpOnly: true,
+		Secure:   true,
+		MaxAge:   -1,
+	}
+	c.SetCookie(stateClearCookie)
 
 	// Redirect to frontend callback URL from config
 	redirectTarget := h.cfg.Server.FrontendURL + "/auth/callback"
