@@ -59,7 +59,7 @@ func (s *OAuthService) GetGoogleAuthURL(ctx context.Context) (*GoogleAuthURLResp
 	}, nil
 }
 
-// ValidateState validates OAuth state from Redis (one-time use)
+// ValidateState validates OAuth state from in-memory store (one-time use)
 func (s *OAuthService) ValidateState(state string) bool {
 	return s.stateManager.ValidateState(state)
 }
@@ -311,7 +311,6 @@ func (s *OAuthService) Logout(ctx context.Context, refreshToken string) error {
 		return entities.ErrSessionNotFound
 	}
 
-	// Delete access token from redis
 	return s.sessionRepo.Revoke(ctx, session.ID)
 }
 
@@ -354,4 +353,23 @@ func (s *OAuthService) ValidateSessionByID(ctx context.Context, sessionID uuid.U
 	}
 
 	return user, nil
+}
+
+// CreateTestAccessToken creates a test JWT token for development/testing (DO NOT USE IN PRODUCTION)
+func (s *OAuthService) CreateTestAccessToken(ctx context.Context, userID uuid.UUID, email string) (*AuthResponse, error) {
+	// Only for development/testing
+	accessToken, err := s.jwtManager.GenerateAccessToken(userID, email, "user")
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate test access token: %w", err)
+	}
+
+	return &AuthResponse{
+		User: &entities.User{
+			ID:    userID,
+			Email: email,
+			Name:  "Test User",
+		},
+		AccessToken: accessToken,
+		ExpiresIn:   int64(s.jwtManager.GetAccessExpiry().Seconds() * 1000),
+	}, nil
 }

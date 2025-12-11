@@ -96,18 +96,10 @@ func main() {
 	}
 	defer database.CloseDB(db)
 
-	// Run AutoMigrate only when explicitly enabled in config.
-	// Production deployments should manage schema via sql-migrate.
-	if cfg.Database.AutoMigrate {
-		if cfg.Server.Environment == "production" {
-			log.Fatalf("AutoMigrate is enabled in production. Disable DB_AUTO_MIGRATE or manage schema with sql-migrate.")
-		}
-		log.Println("🔄 Running GORM AutoMigrate (development only) ...")
-		if err := database.AutoMigrate(db); err != nil {
-			log.Fatalf("Failed to run AutoMigrate: %v", err)
-		}
-	} else {
-		log.Println("🔄 Skipping GORM AutoMigrate; use sql-migrate for schema migrations in CI/CD/production")
+	// Run database migrations using sql-migrate
+	log.Println("🔄 Applying database migrations using sql-migrate...")
+	if err := database.RunMigrations(db); err != nil {
+		log.Fatalf("Failed to run migrations: %v", err)
 	}
 
 	// Initialize in-memory cache for OAuth state (CSRF protection)

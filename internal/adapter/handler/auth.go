@@ -97,6 +97,7 @@ func (h *Auth) GoogleCallback(c echo.Context) error {
 	}
 
 	// Verify state cookie matches query parameter (CSRF double-check)
+	// This is a lightweight check before calling the service
 	stateCookie, err := c.Cookie("oauth_state")
 	if err == nil && stateCookie != nil && stateCookie.Value != "" {
 		if stateCookie.Value != state {
@@ -108,14 +109,8 @@ func (h *Auth) GoogleCallback(c echo.Context) error {
 		}
 	}
 
-	// Validate state from in-memory store (one-time use, expires after 15 minutes)
-	if !h.oauthService.ValidateState(state) {
-		if h.logger != nil {
-			h.logger.Warn("state validation failed",
-				zap.String("state_hash", state[:8]))
-		}
-		return HandleError(h.logger, c, errors.ErrUnauthenticated().WithDetail("error", "invalid or expired state - CSRF validation failed"))
-	}
+	// Note: State validation (one-time use check) is done in HandleGoogleCallback service method
+	// to avoid double validation that would consume the state token
 
 	req := &authUsecase.GoogleCallbackRequest{
 		Code:  code,
@@ -321,4 +316,45 @@ func (h *Auth) Me(c echo.Context) error {
 	}
 
 	return HandleError(h.logger, c, errors.ErrUnauthenticated().WithDetail("error", "Missing authorization token or session"))
+}
+
+// TestToken generates a test JWT token for development (DO NOT USE IN PRODUCTION)
+// @Summary      Generate test JWT token (Development Only)
+// @Description  Generates a test JWT token for testing API with Postman. ONLY for development/testing. Use OAuth flow in production.
+// @Tags         Authentication
+// @Accept       json
+// @Produce      json
+// @Param        request  body      object{email=string}  false  "User email (optional, default: test@example.com)"
+// @Success      200      {object}  map[string]interface{}  "access_token, expires_in"
+// @Router       /auth/test/token [post]
+func (h *Auth) TestToken(c echo.Context) error {
+	// Only allow in development mode
+	if h.cfg.Server.Environment != "development" {
+		return HandleError(h.logger, c, errors.ErrForbidden("Test token endpoint only available in development"))
+	}
+
+	// Parse request body for email
+	var req struct {
+		Email string `json:"email"`
+	}
+	if err := c.Bind(&req); err != nil {
+		// If body parsing fails, use default email
+		req.Email = "test@example.com"
+	}
+	// Generate test user ID
+	testUserID := uuid.New()
+
+	// Create JWT token using jwtManager (via oauth service)
+	ctx := c.Request().Context()
+	resp, err := h.oauthService.CreateTestAccessToken(ctx, testUserID, req.Email)
+	if err != nil {
+		return HandleError(h.logger, c, errors.ErrInternal(err))
+	}
+
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"access_token": resp.AccessToken,
+		"expires_in":   resp.ExpiresIn,
+		"email":        req.Email,
+		"message":      "Test token generated - USE FOR TESTING ONLY",
+	})
 }

@@ -8,39 +8,37 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
-
-	"github.com/johnquangdev/meeting-assistant/pkg/config"
 )
 
-// RedisClient wraps redis client
+// RedisClient wraps redis client (DEPRECATED - using in-memory store instead)
 type RedisClient struct {
 	client *redis.Client
 }
 
-// NewRedisClient creates a new Redis client
-func NewRedisClient(cfg *config.Config) (*RedisClient, error) {
-	client := redis.NewClient(&redis.Options{
-		Addr:           cfg.GetRedisAddr(),
-		Password:       cfg.Redis.Password,
-		DB:             cfg.Redis.DB,
-		Protocol:       2,  // Use RESP2 protocol
-		IdentitySuffix: "", // Disable client tracking to avoid warnings
-	})
+// NewRedisClient creates a new Redis client (DEPRECATED - not used anymore)
+// func NewRedisClient(cfg *config.Config) (*RedisClient, error) {
+// 	client := redis.NewClient(&redis.Options{
+// 		Addr:           cfg.GetRedisAddr(),
+// 		Password:       cfg.Redis.Password,
+// 		DB:             cfg.Redis.DB,
+// 		Protocol:       2,  // Use RESP2 protocol
+// 		IdentitySuffix: "", // Disable client tracking to avoid warnings
+// 	})
 
-	// Test connection
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+// 	// Test connection
+// 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+// 	defer cancel()
 
-	if err := client.Ping(ctx).Err(); err != nil {
-		return nil, fmt.Errorf("failed to connect to Redis: %w", err)
-	}
+// 	if err := client.Ping(ctx).Err(); err != nil {
+// 		return nil, fmt.Errorf("failed to connect to Redis: %w", err)
+// 	}
 
-	log.Println("✅ Redis connected successfully")
+// 	log.Println("✅ Redis connected successfully")
 
-	return &RedisClient{
-		client: client,
-	}, nil
-}
+// 	return &RedisClient{
+// 		client: client,
+// 	}, nil
+// }
 
 // Set stores a value in Redis with expiration
 func (r *RedisClient) Set(ctx context.Context, key string, value interface{}, expiration time.Duration) error {

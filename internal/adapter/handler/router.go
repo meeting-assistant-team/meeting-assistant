@@ -73,6 +73,7 @@ func (rt *Router) setupAuthRoutes(g *echo.Group) {
 		authGroup.POST("/refresh", rt.authHandler.RefreshToken)
 		authGroup.POST("/logout", rt.authHandler.Logout)
 		authGroup.GET("/me", rt.authHandler.Me)
+		authGroup.POST("/test/token", rt.authHandler.TestToken)
 	} else {
 		// Placeholder routes when handler is not initialized
 		authGroup.GET("/google/login", rt.notImplemented)
@@ -80,6 +81,7 @@ func (rt *Router) setupAuthRoutes(g *echo.Group) {
 		authGroup.POST("/refresh", rt.notImplemented)
 		authGroup.POST("/logout", rt.notImplemented)
 		authGroup.GET("/me", rt.notImplemented)
+		authGroup.POST("/test/token", rt.notImplemented)
 	}
 }
 
