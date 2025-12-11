@@ -4,37 +4,50 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/livekit/protocol/livekit"
+	lksdk "github.com/livekit/server-sdk-go/v2"
 	"gorm.io/gorm"
 
 	"github.com/johnquangdev/meeting-assistant/internal/domain/entities"
 	"github.com/johnquangdev/meeting-assistant/internal/domain/repositories"
-	"github.com/johnquangdev/meeting-assistant/internal/infrastructure/external/livekit"
+	lkpkg "github.com/johnquangdev/meeting-assistant/internal/infrastructure/external/livekit"
 	usecaseErrors "github.com/johnquangdev/meeting-assistant/internal/usecase/errors"
+	"github.com/johnquangdev/meeting-assistant/pkg/config"
 )
 
 // RoomService handles room business logic
 type RoomService struct {
 	roomRepo        repositories.RoomRepository
 	participantRepo repositories.ParticipantRepository
-	livekitClient   livekit.Client
+	livekitClient   lkpkg.Client
 	livekitURL      string
+	egressClient    *lksdk.EgressClient
+	storageConfig   *config.StorageConfig
+	apiKey          string
+	apiSecret       string
 }
 
 // NewRoomService creates a new room service
 func NewRoomService(
 	roomRepo repositories.RoomRepository,
 	participantRepo repositories.ParticipantRepository,
-	livekitClient livekit.Client,
+	livekitClient lkpkg.Client,
 	livekitURL string,
+	appConfig *config.Config,
 ) *RoomService {
 	return &RoomService{
 		roomRepo:        roomRepo,
 		participantRepo: participantRepo,
 		livekitClient:   livekitClient,
 		livekitURL:      livekitURL,
+		egressClient:    lksdk.NewEgressClient(appConfig.LiveKit.URL, appConfig.LiveKit.APIKey, appConfig.LiveKit.APISecret),
+		storageConfig:   &appConfig.Storage,
+		apiKey:          appConfig.LiveKit.APIKey,
+		apiSecret:       appConfig.LiveKit.APISecret,
 	}
 }
 
@@ -61,7 +74,7 @@ type CreateRoomOutput struct {
 // CreateRoom creates a new room
 func (s *RoomService) CreateRoom(ctx context.Context, input CreateRoomInput) (*CreateRoomOutput, error) {
 	// Validate input
-	if input.MaxParticipants < 2 || input.MaxParticipants > 100 {
+	if input.MaxParticipants < 2 || input.MaxParticipants > 10 {
 		return nil, usecaseErrors.ErrInvalidMaxParticipants
 	}
 
@@ -69,10 +82,11 @@ func (s *RoomService) CreateRoom(ctx context.Context, input CreateRoomInput) (*C
 	livekitRoomName := fmt.Sprintf("room-%s", uuid.New().String())
 
 	// Create room in LiveKit
-	roomInfo, err := s.livekitClient.CreateRoom(ctx, livekitRoomName, &livekit.CreateRoomOptions{
-		MaxParticipants: int32(input.MaxParticipants),
-		EmptyTimeout:    300, // 5 minutes
-		Metadata:        fmt.Sprintf(`{"name":"%s"}`, input.Name),
+	roomInfo, err := s.livekitClient.CreateRoom(ctx, livekitRoomName, &lkpkg.CreateRoomOptions{
+		MaxParticipants:  int32(input.MaxParticipants),
+		EmptyTimeout:     300, // 5 minutes - auto-delete if no one joins
+		DepartureTimeout: 30,  // 30 seconds - auto-delete after last person leaves
+		Metadata:         fmt.Sprintf(`{"name":"%s"}`, input.Name),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create livekit room: %w", err)
@@ -131,7 +145,7 @@ func (s *RoomService) CreateRoom(ctx context.Context, input CreateRoomInput) (*C
 		input.HostID.String(),
 		livekitRoomName,
 		"Host", // participant name
-		&livekit.TokenOptions{
+		&lkpkg.TokenOptions{
 			ValidFor:       24 * time.Hour,
 			CanPublish:     true,
 			CanSubscribe:   true,
@@ -143,6 +157,41 @@ func (s *RoomService) CreateRoom(ctx context.Context, input CreateRoomInput) (*C
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate livekit token: %w", err)
 	}
+
+	// Start egress recording to MinIO S3 - REQUIRED before room creation completes
+	egressCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	req := &livekit.RoomCompositeEgressRequest{
+		RoomName: livekitRoomName,
+		Layout:   "grid",
+		FileOutputs: []*livekit.EncodedFileOutput{
+			{
+				FileType: livekit.EncodedFileType_MP4,
+				Filepath: "{room_name}-{time}.mp4",
+				Output: &livekit.EncodedFileOutput_S3{
+					S3: &livekit.S3Upload{
+						AccessKey:      s.storageConfig.AccessKeyID,
+						Secret:         s.storageConfig.SecretAccessKey,
+						Bucket:         s.storageConfig.BucketName,
+						Endpoint:       s.storageConfig.GetS3Endpoint(),
+						ForcePathStyle: true,
+						Region:         "us-east-1",
+					},
+				},
+			},
+		},
+	}
+
+	resp, err := s.egressClient.StartRoomCompositeEgress(egressCtx, req)
+	if err != nil {
+		// Cleanup: delete room and LiveKit room since egress is required
+		_ = s.roomRepo.Delete(context.Background(), room.ID)
+		_ = s.livekitClient.DeleteRoom(context.Background(), livekitRoomName)
+		return nil, fmt.Errorf("failed to start egress recording for room: %w", err)
+	}
+
+	log.Printf("[Room] ✅ Egress recording started for room %s with ID: %s", livekitRoomName, resp.EgressId)
 
 	return &CreateRoomOutput{
 		Room:          room,
@@ -220,13 +269,8 @@ func (s *RoomService) JoinRoom(ctx context.Context, input JoinRoomInput) (*entit
 		return nil, nil, fmt.Errorf("failed to get room: %w", err)
 	}
 
-	// DEBUG: Log room status when joining
-	fmt.Printf("🔍 [JOIN_ROOM] User %s attempting to join room %s (status: %s)\n",
-		input.UserID, input.RoomID, room.Status)
-
 	// Check if room has ended (IMPORTANT: Check this BEFORE authorization)
 	if room.IsEnded() {
-		fmt.Printf("❌ [JOIN_ROOM] Room %s has ended, rejecting join attempt\n", input.RoomID)
 		return nil, nil, usecaseErrors.ErrRoomEnded
 	}
 
@@ -300,11 +344,8 @@ func (s *RoomService) JoinRoom(ctx context.Context, input JoinRoomInput) (*entit
 		return room, participant, nil
 	}
 
-	// Nếu không phải host, set status waiting và trả về nil để handler biết trả về thông báo chờ duyệt
-	if participant.Status == entities.ParticipantStatusWaiting {
-		return room, participant, usecaseErrors.ErrWaitingForHostApproval
-	}
-
+	// Nếu không phải host, return participant với status waiting (không throw error)
+	// Handler sẽ check status và return 200 với message chờ duyệt
 	return room, participant, nil
 }
 
@@ -433,18 +474,33 @@ func (s *RoomService) EndRoom(ctx context.Context, roomID, userID uuid.UUID) err
 		return usecaseErrors.ErrNotHost
 	}
 
-	// End the room
+	// Get all active participants to remove them from LiveKit
+	participants, err := s.participantRepo.FindActiveByRoomID(ctx, roomID)
+	if err != nil {
+		return fmt.Errorf("failed to get active participants: %w", err)
+	}
+
+	// Remove all participants from LiveKit room (kick them out)
+	for _, p := range participants {
+		if err := s.livekitClient.RemoveParticipant(ctx, room.LivekitRoomName, p.UserID.String()); err != nil {
+			// Log error but continue with other participants
+			fmt.Printf("⚠️  warning: failed to remove participant %s from livekit: %v\n", p.UserID.String(), err)
+		}
+	}
+
+	// Delete room from LiveKit (closes room and ensures it's removed)
+	if err := s.livekitClient.DeleteRoom(ctx, room.LivekitRoomName); err != nil {
+		// Log error but don't fail - room status should still be updated in DB
+		fmt.Printf("⚠️  warning: failed to delete livekit room %s: %v\n", room.LivekitRoomName, err)
+	}
+
+	// End the room in database
 	room.End()
 	if err := s.roomRepo.Update(ctx, room); err != nil {
 		return fmt.Errorf("failed to end room: %w", err)
 	}
 
 	// Mark all active participants as left
-	participants, err := s.participantRepo.FindActiveByRoomID(ctx, roomID)
-	if err != nil {
-		return fmt.Errorf("failed to get active participants: %w", err)
-	}
-
 	for _, p := range participants {
 		p.Leave()
 		if err := s.participantRepo.Update(ctx, p); err != nil {
@@ -491,46 +547,52 @@ func (s *RoomService) GetWaitingParticipants(ctx context.Context, roomID, hostID
 	return participants, nil
 }
 
-// AdmitParticipant admits a waiting participant into the room
-func (s *RoomService) AdmitParticipant(ctx context.Context, roomID, hostID, participantID uuid.UUID) error {
+// AdmitParticipant admits a waiting participant into the room and generates LiveKit access token
+func (s *RoomService) AdmitParticipant(ctx context.Context, roomID, hostID, participantID uuid.UUID) (string, error) {
 	// Verify room exists
 	room, err := s.roomRepo.FindByID(ctx, roomID)
 	if err != nil {
-		return usecaseErrors.ErrRoomNotFound
+		return "", usecaseErrors.ErrRoomNotFound
 	}
 
 	// Check if room has ended
 	if room.IsEnded() {
-		return usecaseErrors.ErrRoomEnded
+		return "", usecaseErrors.ErrRoomEnded
 	}
 
 	// Verify user is the host
 	if room.HostID != hostID {
-		return usecaseErrors.ErrNotHost
+		return "", usecaseErrors.ErrNotHost
 	}
 
 	// Get participant
 	participant, err := s.participantRepo.FindByID(ctx, participantID)
 	if err != nil {
-		return usecaseErrors.ErrParticipantNotFound
+		return "", usecaseErrors.ErrParticipantNotFound
 	}
 
 	// Verify participant is waiting
 	if participant.Status != entities.ParticipantStatusWaiting {
-		return usecaseErrors.ErrInvalidParticipantStatus
+		return "", usecaseErrors.ErrInvalidParticipantStatus
 	}
 
 	// Mark as joined
 	if err := s.participantRepo.MarkAsJoined(ctx, participantID); err != nil {
-		return fmt.Errorf("failed to admit participant: %w", err)
+		return "", fmt.Errorf("failed to admit participant: %w", err)
 	}
 
 	// Increment participant count
 	if err := s.roomRepo.IncrementParticipantCount(ctx, roomID); err != nil {
-		return fmt.Errorf("failed to increment participant count: %w", err)
+		return "", fmt.Errorf("failed to increment participant count: %w", err)
 	}
 
-	return nil
+	// Generate LiveKit access token for the participant
+	accessToken, err := s.livekitClient.GenerateToken(participant.UserID.String(), room.LivekitRoomName, "", nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate access token: %w", err)
+	}
+
+	return accessToken, nil
 }
 
 // DenyParticipant denies a waiting participant from joining the room
@@ -729,7 +791,7 @@ func (s *RoomService) GenerateParticipantToken(ctx context.Context, room *entiti
 		participant.UserID.String(),
 		room.LivekitRoomName,
 		participantName,
-		&livekit.TokenOptions{
+		&lkpkg.TokenOptions{
 			ValidFor:       24 * time.Hour,
 			CanPublish:     true,
 			CanSubscribe:   true,

@@ -20,6 +20,19 @@ func NewAIController(svc aiuse.Service, logger *zap.Logger) *AIController {
 }
 
 // ProcessMeeting triggers AI processing for a meeting
+// @Summary      Process meeting recording
+// @Description  Manually triggers AI processing (transcription and analysis) for a meeting recording
+// @Tags         AI
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id       path      string                      true  "Meeting ID (UUID)"
+// @Param        request  body      object{recording_url=string}  true  "Recording URL for processing"
+// @Success      202      {object}  map[string]interface{}      "Processing started"
+// @Failure      400      {object}  map[string]interface{}      "Missing recording_url or invalid meeting ID"
+// @Failure      401      {object}  map[string]interface{}      "User not authenticated"
+// @Failure      500      {object}  map[string]interface{}      "Failed to start processing"
+// @Router       /ai/meetings/{id}/process [post]
 func (ac *AIController) ProcessMeeting(c echo.Context) error {
 	meetingID := c.Param("id")
 	var req struct {

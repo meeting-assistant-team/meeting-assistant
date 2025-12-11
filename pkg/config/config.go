@@ -30,7 +30,7 @@ type ServerConfig struct {
 	AllowedOrigins  []string `envconfig:"ALLOWED_ORIGINS" split_words:"true"`
 	ShutdownTimeout int      `envconfig:"SHUTDOWN_TIMEOUT" default:"15"`
 	// FrontendURL is the URL of the frontend application (used for redirects after login)
-	FrontendURL string `envconfig:"FRONTEND_URL" default:"http://localhost:3000"`
+	FrontendURL string `envconfig:"FRONTEND_URL" default:"http://localhost:5173"`
 	// Cookie settings for authentication cookies
 	CookieDomain   string `envconfig:"COOKIE_DOMAIN"`
 	CookiePath     string `envconfig:"COOKIE_PATH" default:"/"`
@@ -97,6 +97,7 @@ type LiveKitConfig struct {
 	APIKey        string `envconfig:"LIVEKIT_API_KEY" default:"devkey"`
 	APISecret     string `envconfig:"LIVEKIT_API_SECRET" default:"secret"`
 	WebhookSecret string `envconfig:"LIVEKIT_WEBHOOK_SECRET"`           // Secret for validating webhooks from LiveKit
+	WebhookURL    string `envconfig:"LIVEKIT_WEBHOOK_URL"`              // Webhook URL for LiveKit to call back (must be publicly accessible)
 	UseMock       bool   `envconfig:"LIVEKIT_USE_MOCK" default:"false"` // Use mock mode for testing without real LiveKit server
 }
 
@@ -144,4 +145,19 @@ func (c *Config) GetDatabaseDSN() string {
 // GetRedisAddr returns the Redis address
 func (c *Config) GetRedisAddr() string {
 	return fmt.Sprintf("%s:%s", c.Redis.Host, c.Redis.Port)
+}
+
+// GetS3Endpoint returns the S3/MinIO endpoint with protocol
+func (s *StorageConfig) GetS3Endpoint() string {
+	protocol := "http://"
+	if s.UseSSL {
+		protocol = "https://"
+	}
+
+	// Check if endpoint already has protocol
+	if len(s.Endpoint) > 7 && (s.Endpoint[:7] == "http://" || s.Endpoint[:8] == "https://") {
+		return s.Endpoint
+	}
+
+	return protocol + s.Endpoint
 }

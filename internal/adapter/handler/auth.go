@@ -33,10 +33,10 @@ func NewAuth(oauthService *authUsecase.OAuthService, logger *zap.Logger, cfg *co
 
 // GoogleLogin handles the initial Google OAuth login request
 // @Summary      Initiate Google OAuth login
-// @Description  Redirects user to Google OAuth consent screen.
+// @Description  Redirects user to Google OAuth consent screen. Returns 307 Temporary Redirect.
 // @Tags         Authentication
 // @Produce      json
-// @Success      307  {string}  string  "Redirect to Google OAuth"
+// @Success      307  {string}  string  "Redirect to Google OAuth consent page"
 // @Failure      500  {object}  map[string]interface{}  "Internal server error"
 // @Router       /auth/google/login [get]
 func (h *Auth) GoogleLogin(c echo.Context) error {
@@ -53,15 +53,14 @@ func (h *Auth) GoogleLogin(c echo.Context) error {
 
 // GoogleCallback handles the OAuth callback from Google
 // @Summary      Handle Google OAuth callback
-// @Description  Processes the OAuth callback from Google and sets a HttpOnly session cookie
+// @Description  Processes the OAuth callback from Google and sets a HttpOnly session cookie. Redirects to frontend callback URL configured in FrontendURL setting.
 // @Tags         Authentication
-// @Accept       json
 // @Produce      json
 // @Param        code   query     string  true  "Authorization code from Google"
 // @Param        state  query     string  true  "State parameter for CSRF protection"
-// @Success      307    {string}  string  "Redirect to frontend callback"
-// @Failure      400    {object}  map[string]interface{}  "Missing code or state"
-// @Failure      401    {object}  map[string]interface{}  "Authentication failed"
+// @Success      307    {string}  string  "Redirect to frontend callback URL with session_id HttpOnly cookie"
+// @Failure      400    {object}  map[string]interface{}  "Missing code or state parameter"
+// @Failure      401    {object}  map[string]interface{}  "Authentication failed - invalid code or state"
 // @Router       /auth/google/callback [get]
 func (h *Auth) GoogleCallback(c echo.Context) error {
 	ctx := c.Request().Context()
@@ -114,19 +113,22 @@ func (h *Auth) GoogleCallback(c echo.Context) error {
 
 	c.SetCookie(sessionCookie)
 
-	redirectTarget := "https://meeting-assistant.infoquang.id.vn/auth/callback"
+	// Redirect to frontend callback URL from config
+	redirectTarget := h.cfg.Server.FrontendURL + "/auth/callback"
+	if h.logger != nil {
+		h.logger.Info("redirecting to frontend callback",
+			zap.String("redirect_url", redirectTarget))
+	}
 	return c.Redirect(http.StatusTemporaryRedirect, redirectTarget)
 }
 
 // RefreshToken refreshes the access token
 // @Summary      Refresh access token
-// @Description  Gets a new access token using a refresh token.
+// @Description  Gets a new access token using session_id from HttpOnly cookie. No request body needed.
 // @Tags         Authentication
-// @Accept       json
 // @Produce      json
-// @Param        request  body      object{refresh_token=string}  true  "Refresh token"
-// @Success      200      {object}  github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.RefreshTokenResponse  "Token refreshed successfully"
-// @Failure      400      {object}  map[string]interface{}  "Invalid request or missing token"
+// @Success      200      {object}  map[string]interface{}  "Token refreshed successfully with access_token and expires_in"
+// @Failure      400      {object}  map[string]interface{}  "Invalid or missing session_id cookie"
 // @Failure      401      {object}  map[string]interface{}  "Failed to refresh token"
 // @Router       /auth/refresh [post]
 func (h *Auth) RefreshToken(c echo.Context) error {
@@ -158,12 +160,13 @@ func (h *Auth) RefreshToken(c echo.Context) error {
 
 // Logout logs out the current user
 // @Summary      Logout user
-// @Description  Invalidates the session and logs out the user.
+// @Description  Invalidates the session and logs out the user. Supports session_id cookie (preferred) or refresh_token in body (backwards compatibility).
 // @Tags         Authentication
 // @Accept       json
 // @Produce      json
+// @Param        request  body      object{refresh_token=string}  false  "Refresh token (optional, only for backwards compatibility)"
 // @Success      200      {object}  map[string]string  "Logged out successfully"
-// @Failure      400      {object}  map[string]interface{}  "Missing session"
+// @Failure      400      {object}  map[string]interface{}  "Missing session or invalid token"
 // @Failure      500      {object}  map[string]interface{}  "Failed to logout"
 // @Router       /auth/logout [post]
 func (h *Auth) Logout(c echo.Context) error {

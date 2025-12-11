@@ -42,8 +42,8 @@ COPY --from=builder /app/bin/migrate .
 # Copy migrations
 COPY --from=builder /app/migrations ./migrations
 
-# Create logs directory
-RUN mkdir -p /app/logs && chown -R appuser:appuser /app
+# Create logs and recordings directories
+RUN mkdir -p /app/logs /tmp/recordings && chown -R appuser:appuser /app /tmp/recordings
 
 # Switch to non-root user
 USER appuser

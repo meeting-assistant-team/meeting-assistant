@@ -1,29 +1,5 @@
 basePath: /v1
 definitions:
-  github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.AuthResponse:
-    properties:
-      access_token:
-        type: string
-      expires_in:
-        description: seconds
-        type: integer
-      refresh_token:
-        type: string
-      token_type:
-        description: '"Bearer"'
-        type: string
-      user:
-        $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.UserResponse'
-    type: object
-  github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.RefreshTokenResponse:
-    properties:
-      access_token:
-        type: string
-      expires_in:
-        type: integer
-      token_type:
-        type: string
-    type: object
   github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.UserResponse:
     properties:
       avatar_url:
@@ -236,11 +212,59 @@ info:
   title: Meeting Assistant API
   version: "1.0"
 paths:
-  /auth/google/callback:
-    get:
+  /ai/meetings/{id}/process:
+    post:
       consumes:
       - application/json
-      description: Processes the OAuth callback from Google and returns JWT tokens
+      description: Manually triggers AI processing (transcription and analysis) for
+        a meeting recording
+      parameters:
+      - description: Meeting ID (UUID)
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Recording URL for processing
+        in: body
+        name: request
+        required: true
+        schema:
+          properties:
+            recording_url:
+              type: string
+          type: object
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Processing started
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Missing recording_url or invalid meeting ID
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: User not authenticated
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Failed to start processing
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Process meeting recording
+      tags:
+      - AI
+  /auth/google/callback:
+    get:
+      description: Processes the OAuth callback from Google and sets a HttpOnly session
+        cookie. Redirects to frontend callback URL configured in FrontendURL setting.
       parameters:
       - description: Authorization code from Google
         in: query
@@ -255,17 +279,18 @@ paths:
       produces:
       - application/json
       responses:
-        "200":
-          description: Authentication successful
+        "307":
+          description: Redirect to frontend callback URL with session_id HttpOnly
+            cookie
           schema:
-            $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.AuthResponse'
+            type: string
         "400":
-          description: Missing code or state
+          description: Missing code or state parameter
           schema:
             additionalProperties: true
             type: object
         "401":
-          description: Authentication failed
+          description: Authentication failed - invalid code or state
           schema:
             additionalProperties: true
             type: object
@@ -274,16 +299,13 @@ paths:
       - Authentication
   /auth/google/login:
     get:
-      description: Redirects user to Google OAuth consent screen. **Flow cho FE:**
-        1. Gọi endpoint này từ browser (`window.location.href = 'https://api-meeting.infoquang.id.vn/v1/auth/google/login'`).
-        2. User được redirect đến Google để đăng nhập. 3. Sau khi đăng nhập thành
-        công, Google redirect về `/auth/google/callback`. 4. Backend xử lý và redirect
-        về FRONTEND_URL với tokens trong query params.
+      description: Redirects user to Google OAuth consent screen. Returns 307 Temporary
+        Redirect.
       produces:
       - application/json
       responses:
         "307":
-          description: Redirect to Google OAuth
+          description: Redirect to Google OAuth consent page
           schema:
             type: string
         "500":
@@ -298,15 +320,12 @@ paths:
     post:
       consumes:
       - application/json
-      description: 'Invalidates the refresh token and logs out the user. **Request
-        body:** `{"refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."}` **Sau
-        khi logout thành công, FE cần:** Xóa access_token và refresh_token khỏi localStorage/sessionStorage,
-        sau đó redirect user về trang login.'
+      description: Invalidates the session and logs out the user. Supports session_id
+        cookie (preferred) or refresh_token in body (backwards compatibility).
       parameters:
-      - description: Refresh token to invalidate
+      - description: Refresh token (optional, only for backwards compatibility)
         in: body
         name: request
-        required: true
         schema:
           properties:
             refresh_token:
@@ -322,7 +341,7 @@ paths:
               type: string
             type: object
         "400":
-          description: Missing refresh token
+          description: Missing session or invalid token
           schema:
             additionalProperties: true
             type: object
@@ -336,9 +355,8 @@ paths:
       - Authentication
   /auth/me:
     get:
-      description: 'Returns the authenticated user''s information. **Yêu cầu:** Header
-        `Authorization: Bearer <access_token>`. Không có tham số query/body. **Ví
-        dụ:** `curl -H "Authorization: Bearer <token>" https://api-meeting.infoquang.id.vn/v1/auth/me`'
+      description: Returns the authenticated user's information. Supports Authorization
+        header (Bearer) or session cookie.
       produces:
       - application/json
       responses:
@@ -347,7 +365,7 @@ paths:
           schema:
             $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.UserResponse'
         "401":
-          description: Missing or invalid token
+          description: Missing or invalid token/session
           schema:
             additionalProperties: true
             type: object
@@ -358,30 +376,18 @@ paths:
       - Authentication
   /auth/refresh:
     post:
-      consumes:
-      - application/json
-      description: 'Gets a new access token using a refresh token. **Khi nào dùng:**
-        Khi access_token hết hạn (401 Unauthorized) hoặc trước khi hết hạn để tránh
-        gián đoạn UX. **Request body:** `{"refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."}`'
-      parameters:
-      - description: Refresh token
-        in: body
-        name: request
-        required: true
-        schema:
-          properties:
-            refresh_token:
-              type: string
-          type: object
+      description: Gets a new access token using session_id from HttpOnly cookie.
+        No request body needed.
       produces:
       - application/json
       responses:
         "200":
-          description: Token refreshed successfully
+          description: Token refreshed successfully with access_token and expires_in
           schema:
-            $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.RefreshTokenResponse'
+            additionalProperties: true
+            type: object
         "400":
-          description: Invalid request or missing token
+          description: Invalid or missing session_id cookie
           schema:
             additionalProperties: true
             type: object
@@ -740,9 +746,7 @@ paths:
       - Participants
   /rooms/{id}/participants/{pid}/admit:
     post:
-      consumes:
-      - application/json
-      description: Removes a participant from the room (host/co-host only)
+      description: Admits a waiting participant to join the room (host only)
       parameters:
       - description: Room ID (UUID)
         in: path
@@ -784,7 +788,7 @@ paths:
             type: object
       security:
       - BearerAuth: []
-      summary: Remove a participant
+      summary: Admit participant
       tags:
       - Participants
   /rooms/{id}/participants/{pid}/deny:
@@ -873,9 +877,8 @@ paths:
       - Rooms
   /rooms/{id}/participants/waiting:
     get:
-      consumes:
-      - application/json
-      description: Removes a participant from the room (host/co-host only)
+      description: Gets a list of participants waiting for approval in a room (host
+        only)
       parameters:
       - description: Room ID (UUID)
         in: path
@@ -911,9 +914,40 @@ paths:
             type: object
       security:
       - BearerAuth: []
-      summary: Remove a participant
+      summary: Get waiting participants
       tags:
       - Participants
+  /webhooks/assemblyai:
+    post:
+      consumes:
+      - application/json
+      description: Receives webhook events from AssemblyAI when transcription completes
+      parameters:
+      - description: Signature header for webhook verification
+        in: header
+        name: x-assemblyai-signature
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Webhook processed
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid payload
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Webhook processing failed
+          schema:
+            additionalProperties: true
+            type: object
+      summary: AssemblyAI Webhook
+      tags:
+      - Webhooks
   /webhooks/livekit:
     post:
       consumes:

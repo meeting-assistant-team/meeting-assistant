@@ -278,3 +278,5 @@ Thumbs.db
 *.swo
 bin/
 .vscode/
+docs 
+scripts

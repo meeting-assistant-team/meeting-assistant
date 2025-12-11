@@ -18,12 +18,82 @@
     "host": "api-meeting.infoquang.id.vn",
     "basePath": "/v1",
     "paths": {
-        "/auth/google/callback": {
-            "get": {
-                "description": "Processes the OAuth callback from Google and returns JWT tokens",
+        "/ai/meetings/{id}/process": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Manually triggers AI processing (transcription and analysis) for a meeting recording",
                 "consumes": [
                     "application/json"
                 ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "AI"
+                ],
+                "summary": "Process meeting recording",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Meeting ID (UUID)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Recording URL for processing",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "recording_url": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Processing started",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Missing recording_url or invalid meeting ID",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "User not authenticated",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Failed to start processing",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/auth/google/callback": {
+            "get": {
+                "description": "Processes the OAuth callback from Google and sets a HttpOnly session cookie. Redirects to frontend callback URL configured in FrontendURL setting.",
                 "produces": [
                     "application/json"
                 ],
@@ -48,21 +118,21 @@
                     }
                 ],
                 "responses": {
-                    "200": {
-                        "description": "Authentication successful",
+                    "307": {
+                        "description": "Redirect to frontend callback URL with session_id HttpOnly cookie",
                         "schema": {
-                            "$ref": "#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.AuthResponse"
+                            "type": "string"
                         }
                     },
                     "400": {
-                        "description": "Missing code or state",
+                        "description": "Missing code or state parameter",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
                         }
                     },
                     "401": {
-                        "description": "Authentication failed",
+                        "description": "Authentication failed - invalid code or state",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -73,7 +143,7 @@
         },
         "/auth/google/login": {
             "get": {
-                "description": "Redirects user to Google OAuth consent screen. **Flow cho FE:** 1. Gọi endpoint này từ browser (`window.location.href = 'https://api-meeting.infoquang.id.vn/v1/auth/google/login'`). 2. User được redirect đến Google để đăng nhập. 3. Sau khi đăng nhập thành công, Google redirect về `/auth/google/callback`. 4. Backend xử lý và redirect về FRONTEND_URL với tokens trong query params.",
+                "description": "Redirects user to Google OAuth consent screen. Returns 307 Temporary Redirect.",
                 "produces": [
                     "application/json"
                 ],
@@ -83,7 +153,7 @@
                 "summary": "Initiate Google OAuth login",
                 "responses": {
                     "307": {
-                        "description": "Redirect to Google OAuth",
+                        "description": "Redirect to Google OAuth consent page",
                         "schema": {
                             "type": "string"
                         }
@@ -100,7 +170,7 @@
         },
         "/auth/logout": {
             "post": {
-                "description": "Invalidates the refresh token and logs out the user. **Request body:** `{\"refresh_token\": \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...\"}` **Sau khi logout thành công, FE cần:** Xóa access_token và refresh_token khỏi localStorage/sessionStorage, sau đó redirect user về trang login.",
+                "description": "Invalidates the session and logs out the user. Supports session_id cookie (preferred) or refresh_token in body (backwards compatibility).",
                 "consumes": [
                     "application/json"
                 ],
@@ -113,10 +183,9 @@
                 "summary": "Logout user",
                 "parameters": [
                     {
-                        "description": "Refresh token to invalidate",
+                        "description": "Refresh token (optional, only for backwards compatibility)",
                         "name": "request",
                         "in": "body",
-                        "required": true,
                         "schema": {
                             "type": "object",
                             "properties": {
@@ -138,7 +207,7 @@
                         }
                     },
                     "400": {
-                        "description": "Missing refresh token",
+                        "description": "Missing session or invalid token",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -161,7 +230,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns the authenticated user's information. **Yêu cầu:** Header `Authorization: Bearer \u003caccess_token\u003e`. Không có tham số query/body. **Ví dụ:** `curl -H \"Authorization: Bearer \u003ctoken\u003e\" https://api-meeting.infoquang.id.vn/v1/auth/me`",
+                "description": "Returns the authenticated user's information. Supports Authorization header (Bearer) or session cookie.",
                 "produces": [
                     "application/json"
                 ],
@@ -177,7 +246,7 @@
                         }
                     },
                     "401": {
-                        "description": "Missing or invalid token",
+                        "description": "Missing or invalid token/session",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -188,10 +257,7 @@
         },
         "/auth/refresh": {
             "post": {
-                "description": "Gets a new access token using a refresh token. **Khi nào dùng:** Khi access_token hết hạn (401 Unauthorized) hoặc trước khi hết hạn để tránh gián đoạn UX. **Request body:** `{\"refresh_token\": \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...\"}`",
-                "consumes": [
-                    "application/json"
-                ],
+                "description": "Gets a new access token using session_id from HttpOnly cookie. No request body needed.",
                 "produces": [
                     "application/json"
                 ],
@@ -199,31 +265,16 @@
                     "Authentication"
                 ],
                 "summary": "Refresh access token",
-                "parameters": [
-                    {
-                        "description": "Refresh token",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "type": "object",
-                            "properties": {
-                                "refresh_token": {
-                                    "type": "string"
-                                }
-                            }
-                        }
-                    }
-                ],
                 "responses": {
                     "200": {
-                        "description": "Token refreshed successfully",
+                        "description": "Token refreshed successfully with access_token and expires_in",
                         "schema": {
-                            "$ref": "#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.RefreshTokenResponse"
+                            "type": "object",
+                            "additionalProperties": true
                         }
                     },
                     "400": {
-                        "description": "Invalid request or missing token",
+                        "description": "Invalid or missing session_id cookie",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -744,17 +795,14 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Removes a participant from the room (host/co-host only)",
-                "consumes": [
-                    "application/json"
-                ],
+                "description": "Gets a list of participants waiting for approval in a room (host only)",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "Participants"
                 ],
-                "summary": "Remove a participant",
+                "summary": "Get waiting participants",
                 "parameters": [
                     {
                         "type": "string",
@@ -890,17 +938,14 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Removes a participant from the room (host/co-host only)",
-                "consumes": [
-                    "application/json"
-                ],
+                "description": "Admits a waiting participant to join the room (host only)",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "Participants"
                 ],
-                "summary": "Remove a participant",
+                "summary": "Admit participant",
                 "parameters": [
                     {
                         "type": "string",
@@ -1026,6 +1071,52 @@
                 }
             }
         },
+        "/webhooks/assemblyai": {
+            "post": {
+                "description": "Receives webhook events from AssemblyAI when transcription completes",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Webhooks"
+                ],
+                "summary": "AssemblyAI Webhook",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Signature header for webhook verification",
+                        "name": "x-assemblyai-signature",
+                        "in": "header"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Webhook processed",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid payload",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Webhook processing failed",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/webhooks/livekit": {
             "post": {
                 "description": "Receives webhook events from LiveKit server",
@@ -1059,42 +1150,6 @@
         }
     },
     "definitions": {
-        "github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.AuthResponse": {
-            "type": "object",
-            "properties": {
-                "access_token": {
-                    "type": "string"
-                },
-                "expires_in": {
-                    "description": "seconds",
-                    "type": "integer"
-                },
-                "refresh_token": {
-                    "type": "string"
-                },
-                "token_type": {
-                    "description": "\"Bearer\"",
-                    "type": "string"
-                },
-                "user": {
-                    "$ref": "#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.UserResponse"
-                }
-            }
-        },
-        "github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.RefreshTokenResponse": {
-            "type": "object",
-            "properties": {
-                "access_token": {
-                    "type": "string"
-                },
-                "expires_in": {
-                    "type": "integer"
-                },
-                "token_type": {
-                    "type": "string"
-                }
-            }
-        },
         "github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.UserResponse": {
             "type": "object",
             "properties": {

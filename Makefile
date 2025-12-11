@@ -1,24 +1,11 @@
-.PHONY: help build run test clean migrate-up migrate-down migrate-create docker-up docker-down db-up db-down db-reset
+.PHONY: help build run test clean migrate-up migrate-down migrate-create docker-up docker-down docker-build docker-rebuild db-up db-down db-reset
+
+APP_NAME=meeting-assistant
+
+docker-logs-app: ## Show app logs only
+	docker-compose logs -f app
 
 # Database commands
-db-up: ## Start PostgreSQL and Redis with Docker Compose
-	@echo "🐳 Starting PostgreSQL and Redis..."
-	docker-compose up -d postgres redis
-	@echo "⏳ Waiting for services to be healthy..."
-	@sleep 3
-	@echo "✅ Database services are running"
-
-db-down: ## Stop PostgreSQL and Redis
-	@echo "🛑 Stopping database services..."
-	docker-compose down
-
-db-reset: ## Reset database (WARNING: This will delete all data)
-	@echo "⚠️  Resetting database..."
-	docker-compose down -v
-	docker-compose up -d postgres redis
-	@sleep 3
-	@echo "✅ Database reset complete"
-
 db-logs: ## Show database logs
 	docker-compose logs -f postgres redis
 
@@ -56,9 +43,16 @@ db-seed: ## Seed local database with test user
 	@echo "✅ Test user created/updated"
 
 # Application commands
-build: ## Build the application
-	@echo "Building application..."
+build: ## Build Go binary (local build)
+	@echo "📦 Building Go binary..."
 	go build -o bin/$(APP_NAME) cmd/api/main.go
+	@echo "✅ Build complete: ./bin/$(APP_NAME)"
+
+build-docker: docker-build docker-up ## Build Docker image and start containers
+
+build-docker-rebuild: docker-rebuild docker-up ## Rebuild Docker image (no cache) and start
+
+build-docker-clean: docker-prune build-docker-rebuild ## Clean Docker resources then rebuild
 
 run: ## Run the application
 	@echo "Running application..."
