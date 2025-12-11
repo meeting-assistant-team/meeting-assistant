@@ -30,7 +30,7 @@ type ServerConfig struct {
 	AllowedOrigins  []string `envconfig:"ALLOWED_ORIGINS" split_words:"true"`
 	ShutdownTimeout int      `envconfig:"SHUTDOWN_TIMEOUT" default:"15"`
 	// FrontendURL is the URL of the frontend application (used for redirects after login)
-	FrontendURL string `envconfig:"FRONTEND_URL" default:"http://localhost:5173"`
+	FrontendURL string `envconfig:"FRONTEND_URL" default:"https://meeting-assistant.infoquang.id.vn"`
 	// Cookie settings for authentication cookies
 	CookieDomain   string `envconfig:"COOKIE_DOMAIN"`
 	CookiePath     string `envconfig:"COOKIE_PATH" default:"/"`

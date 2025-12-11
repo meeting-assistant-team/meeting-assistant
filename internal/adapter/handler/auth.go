@@ -33,7 +33,7 @@ func NewAuth(oauthService *authUsecase.OAuthService, logger *zap.Logger, cfg *co
 
 // GoogleLogin handles the initial Google OAuth login request
 // @Summary      Initiate Google OAuth login
-// @Description  Redirects user to Google OAuth consent screen. Returns 307 Temporary Redirect.
+// @Description  Redirects user to Google OAuth consent screen. State stored in Redis (15 min expiry).
 // @Tags         Authentication
 // @Produce      json
 // @Success      307  {string}  string  "Redirect to Google OAuth consent page"
@@ -45,6 +45,12 @@ func (h *Auth) GoogleLogin(c echo.Context) error {
 	authURL, err := h.oauthService.GetGoogleAuthURL(ctx)
 	if err != nil {
 		return HandleError(h.logger, c, errors.ErrInternal(err))
+	}
+
+	// State is stored in Redis by stateManager with 15 minute expiration
+	// ValidateState will check Redis during callback (one-time use)
+	if h.logger != nil {
+		h.logger.Info("generated OAuth state token", zap.String("state_hash", authURL.State[:8]))
 	}
 
 	// Redirect to Google OAuth
@@ -70,6 +76,15 @@ func (h *Auth) GoogleCallback(c echo.Context) error {
 
 	if code == "" || state == "" {
 		return HandleError(h.logger, c, errors.ErrInvalidArgument("Missing code or state parameter"))
+	}
+
+	// Validate state from Redis (one-time use, expires after 15 minutes)
+	if !h.oauthService.ValidateState(state) {
+		if h.logger != nil {
+			h.logger.Warn("state validation failed",
+				zap.String("state_hash", state[:8]))
+		}
+		return HandleError(h.logger, c, errors.ErrUnauthenticated().WithDetail("error", "invalid or expired state - CSRF validation failed"))
 	}
 
 	req := &authUsecase.GoogleCallbackRequest{

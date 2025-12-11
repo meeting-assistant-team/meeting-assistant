@@ -2,8 +2,6 @@ package repository
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"time"
 
@@ -45,15 +43,11 @@ func (r *SessionRepository) FindByID(ctx context.Context, id uuid.UUID) (*entiti
 	return &session, nil
 }
 
-// FindByTokenHash finds a session by refresh token hash
+// FindByTokenHash finds a session by refresh token
 func (r *SessionRepository) FindByTokenHash(ctx context.Context, tokenHash string) (*entities.Session, error) {
 	var session entities.Session
-	// TokenHash parameter is the raw refresh token; compute its SHA-256 hex digest
-	h := sha256.Sum256([]byte(tokenHash))
-	hashStr := hex.EncodeToString(h[:])
-
 	if err := r.db.WithContext(ctx).
-		Where("token_hash = ? AND revoked_at IS NULL", hashStr).
+		Where("token_hash = ? AND revoked_at IS NULL", tokenHash).
 		First(&session).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, entities.ErrSessionNotFound

@@ -110,13 +110,9 @@ func main() {
 		log.Println("🔄 Skipping GORM AutoMigrate; use sql-migrate for schema migrations in CI/CD/production")
 	}
 
-	// Initialize Redis
-	log.Println("📦 Connecting to Redis...")
-	redisClient, err := cache.NewRedisClient(cfg)
-	if err != nil {
-		log.Fatalf("Failed to connect to Redis: %v", err)
-	}
-	defer redisClient.Close()
+	// Initialize in-memory cache for OAuth state (CSRF protection)
+	log.Println("📦 Initializing in-memory cache...")
+	memoryStore := cache.NewMemoryStore()
 
 	// Initialize repositories
 	log.Println("⚙️  Initializing repositories...")
@@ -148,9 +144,9 @@ func main() {
 		cfg.OAuth.Google.RedirectURL,
 	)
 
-	// Initialize state manager with Redis for CSRF protection
+	// Initialize state manager with in-memory cache for CSRF protection
 	log.Println("🔒 Initializing state manager...")
-	stateManager := oauth.NewStateManager(redisClient)
+	stateManager := oauth.NewStateManager(memoryStore)
 
 	// Initialize JWT manager
 	log.Println("🔑 Initializing JWT manager...")
@@ -166,7 +162,6 @@ func main() {
 	oauthService := auth.NewOAuthService(
 		userRepo,
 		sessionRepo,
-		redisClient,
 		googleProvider,
 		stateManager,
 		jwtManager,

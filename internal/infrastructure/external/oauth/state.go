@@ -1,35 +1,34 @@
 package oauth
 
 import (
-	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
 	"time"
 )
 
-// RedisStore interface for Redis operations
-type RedisStore interface {
-	Set(ctx context.Context, key string, value interface{}, expiration time.Duration) error
-	Get(ctx context.Context, key string) (string, error)
-	Delete(ctx context.Context, keys ...string) error
+// Store interface for state storage (in-memory)
+type Store interface {
+	Set(key string, value string, expiration time.Duration)
+	Get(key string) (string, bool)
+	Delete(key string)
 }
 
-// StateManager manages OAuth state tokens for CSRF protection using Redis
+// StateManager manages OAuth state tokens for CSRF protection using in-memory store
 type StateManager struct {
-	redis      RedisStore
+	store      Store
 	expiration time.Duration
 }
 
-// NewStateManager creates a new state manager with Redis backend
-func NewStateManager(redis RedisStore) *StateManager {
+// NewStateManager creates a new state manager with in-memory backend
+func NewStateManager(store Store) *StateManager {
 	return &StateManager{
-		redis:      redis,
+		store:      store,
 		expiration: 15 * time.Minute, // State expires in 15 minutes
 	}
 }
 
-// GenerateState generates a random state token and stores it in Redis
+// GenerateState generates a random state token and stores it in-memory
 func (sm *StateManager) GenerateState() (string, error) {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
@@ -38,32 +37,25 @@ func (sm *StateManager) GenerateState() (string, error) {
 
 	state := base64.URLEncoding.EncodeToString(b)
 
-	// Store in Redis with expiration
-	ctx := context.Background()
+	// Store in memory with expiration
 	key := fmt.Sprintf("oauth:state:%s", state)
-	if err := sm.redis.Set(ctx, key, "valid", sm.expiration); err != nil {
-		return "", fmt.Errorf("failed to store state in Redis: %w", err)
-	}
+	sm.store.Set(key, "valid", sm.expiration)
 
 	return state, nil
 }
 
-// ValidateState validates a state token from Redis (one-time use)
+// ValidateState validates a state token from in-memory store (one-time use)
 func (sm *StateManager) ValidateState(state string) bool {
-	ctx := context.Background()
 	key := fmt.Sprintf("oauth:state:%s", state)
 
-	// Check if state exists in Redis
-	value, err := sm.redis.Get(ctx, key)
-	if err != nil || value != "valid" {
+	// Check if state exists and is valid
+	value, exists := sm.store.Get(key)
+	if !exists || value != "valid" {
 		return false
 	}
 
 	// Delete the state immediately (one-time use)
-	if err := sm.redis.Delete(ctx, key); err != nil {
-		// Log error but still return true since state was valid
-		return true
-	}
+	sm.store.Delete(key)
 
 	return true
 }
