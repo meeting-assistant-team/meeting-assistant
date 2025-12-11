@@ -8,7 +8,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/johnquangdev/meeting-assistant/internal/domain/entities"
 	"github.com/johnquangdev/meeting-assistant/internal/domain/repositories"
-	"github.com/johnquangdev/meeting-assistant/internal/infrastructure/cache"
 	"github.com/johnquangdev/meeting-assistant/internal/infrastructure/external/oauth"
 	"github.com/johnquangdev/meeting-assistant/pkg/jwt"
 )
@@ -17,7 +16,6 @@ import (
 type OAuthService struct {
 	userRepo     repositories.UserRepository
 	sessionRepo  repositories.SessionRepository
-	cache        *cache.RedisClient
 	google       *oauth.GoogleProvider
 	stateManager *oauth.StateManager
 	jwtManager   *jwt.Manager
@@ -27,7 +25,6 @@ type OAuthService struct {
 func NewOAuthService(
 	userRepo repositories.UserRepository,
 	sessionRepo repositories.SessionRepository,
-	cache *cache.RedisClient,
 	google *oauth.GoogleProvider,
 	stateManager *oauth.StateManager,
 	jwtManager *jwt.Manager,
@@ -35,7 +32,6 @@ func NewOAuthService(
 	return &OAuthService{
 		userRepo:     userRepo,
 		sessionRepo:  sessionRepo,
-		cache:        cache,
 		google:       google,
 		stateManager: stateManager,
 		jwtManager:   jwtManager,
@@ -61,6 +57,11 @@ func (s *OAuthService) GetGoogleAuthURL(ctx context.Context) (*GoogleAuthURLResp
 		URL:   url,
 		State: state,
 	}, nil
+}
+
+// ValidateState validates OAuth state from Redis (one-time use)
+func (s *OAuthService) ValidateState(state string) bool {
+	return s.stateManager.ValidateState(state)
 }
 
 // GoogleCallbackRequest represents the callback request
@@ -168,25 +169,15 @@ func (s *OAuthService) HandleGoogleCallback(ctx context.Context, req *GoogleCall
 		return nil, fmt.Errorf("failed to generate refresh token: %w", err)
 	}
 
-	// Hash the refresh token before storing (we keep the raw token to return to client)
-	tokenHash, err := s.jwtManager.HashToken(refreshToken)
-	if err != nil {
-		return nil, fmt.Errorf("failed to hash refresh token: %w", err)
-	}
-
-	// Store hashed refresh token in session for revocation capability
+	// Create session with raw refresh token
 	session := entities.NewSession(
 		user.ID,
-		tokenHash, // store hash, not raw token
+		refreshToken,
 		time.Now().Add(s.jwtManager.GetRefreshExpiry()),
 	)
 
 	if err := s.sessionRepo.Create(ctx, session); err != nil {
 		return nil, fmt.Errorf("failed to create session: %w", err)
-	}
-	// Save access token to redis
-	if err := s.cache.SaveAccessToken(ctx, user.ID, accessToken, s.jwtManager.GetAccessExpiry()); err != nil {
-		return nil, fmt.Errorf("failed to save access token to redis: %w", err)
 	}
 
 	return &AuthResponse{
@@ -225,20 +216,13 @@ func (s *OAuthService) RefreshAccessToken(ctx context.Context, refreshToken stri
 	if err != nil {
 		return nil, fmt.Errorf("failed to find user: %w", err)
 	}
-	// add blacklist
-	if err := s.cache.DeleteAccessToken(ctx, user.ID); err != nil {
-		return nil, fmt.Errorf("failed to delete old access token from redis: %w", err)
-	}
 
 	// Generate new access token
 	newAccessToken, err := s.jwtManager.GenerateAccessToken(user.ID, user.Email, string(user.Role))
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate access token: %w", err)
 	}
-	// Save new access token to redis
-	if err := s.cache.SaveAccessToken(ctx, user.ID, newAccessToken, s.jwtManager.GetAccessExpiry()); err != nil {
-		return nil, fmt.Errorf("failed to save new access token to redis: %w", err)
-	}
+
 	return &AuthResponse{
 		User:        user,
 		AccessToken: newAccessToken,
@@ -280,11 +264,6 @@ func (s *OAuthService) RefreshAccessTokenBySessionID(ctx context.Context, sessio
 	newAccessToken, err := s.jwtManager.GenerateAccessToken(user.ID, user.Email, string(user.Role))
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate access token: %w", err)
-	}
-
-	// Save to redis
-	if err := s.cache.SaveAccessToken(ctx, user.ID, newAccessToken, s.jwtManager.GetAccessExpiry()); err != nil {
-		return nil, fmt.Errorf("failed to save new access token to redis: %w", err)
 	}
 
 	return &AuthResponse{
@@ -333,10 +312,6 @@ func (s *OAuthService) Logout(ctx context.Context, refreshToken string) error {
 	}
 
 	// Delete access token from redis
-	if err := s.cache.DeleteAccessToken(ctx, session.UserID); err != nil {
-		return fmt.Errorf("failed to delete access token from redis: %w", err)
-	}
-
 	return s.sessionRepo.Revoke(ctx, session.ID)
 }
 

@@ -13,11 +13,8 @@ services:
     environment:
       # Override specific vars for Docker network
       - DB_HOST=postgres
-      - REDIS_HOST=redis
     depends_on:
       postgres:
-        condition: service_healthy
-      redis:
         condition: service_healthy
 
   postgres:
@@ -42,21 +39,6 @@ services:
       timeout: 5s
       retries: 5
 
-  redis:
-    image: redis:7-alpine
-    container_name: meeting-assistant-redis
-    restart: unless-stopped
-    command: redis-server --appendonly yes
-    ports:
-      - "${REDIS_PORT}:6379"
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-
   minio:
     image: minio/minio:latest
     container_name: meeting-assistant-minio
@@ -78,8 +60,6 @@ services:
 
 volumes:
   postgres_data:
-    driver: local
-  redis_data:
     driver: local
   minio_data:
     driver: local
