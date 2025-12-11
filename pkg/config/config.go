@@ -13,7 +13,6 @@ import (
 type Config struct {
 	Server   ServerConfig
 	Database DatabaseConfig
-	Redis    RedisConfig
 	OAuth    OAuthConfig
 	JWT      JWTConfig
 	Storage  StorageConfig
@@ -48,17 +47,6 @@ type DatabaseConfig struct {
 	SSLMode  string `envconfig:"DB_SSLMODE"`
 	MaxConns int    `envconfig:"DB_MAX_CONNS"`
 	MinConns int    `envconfig:"DB_MIN_CONNS"`
-	// AutoMigrate controls whether GORM AutoMigrate is run at startup.
-	// When using sql-migrate for schema management, keep this false in production.
-	AutoMigrate bool `envconfig:"DB_AUTO_MIGRATE" default:"false"`
-}
-
-// RedisConfig holds Redis configuration
-type RedisConfig struct {
-	Host     string `envconfig:"REDIS_HOST"`
-	Port     string `envconfig:"REDIS_PORT"`
-	Password string `envconfig:"REDIS_PASSWORD"`
-	DB       int    `envconfig:"REDIS_DB"`
 }
 
 // OAuthConfig holds OAuth configuration
@@ -140,11 +128,6 @@ func (c *Config) GetDatabaseDSN() string {
 		c.Database.Name,
 		c.Database.SSLMode,
 	)
-}
-
-// GetRedisAddr returns the Redis address
-func (c *Config) GetRedisAddr() string {
-	return fmt.Sprintf("%s:%s", c.Redis.Host, c.Redis.Port)
 }
 
 // GetS3Endpoint returns the S3/MinIO endpoint with protocol

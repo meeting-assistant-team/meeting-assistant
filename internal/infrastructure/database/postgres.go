@@ -56,10 +56,9 @@ func NewPostgresDB(cfg *config.Config) (*gorm.DB, error) {
 	return db, nil
 }
 
-// AutoMigrate runs database migrations
-func AutoMigrate(db *gorm.DB) error {
-	// Use rubenv/sql-migrate to apply migrations from the `migrations/` directory.
-	log.Println("🔄 Applying migrations from migrations/ using sql-migrate...")
+// RunMigrations applies database migrations using sql-migrate
+func RunMigrations(db *gorm.DB) error {
+	log.Println("📊 Running database migrations using sql-migrate...")
 
 	migrations := &migrate.FileMigrationSource{
 		Dir: "migrations",
@@ -67,15 +66,15 @@ func AutoMigrate(db *gorm.DB) error {
 
 	sqlDB, err := db.DB()
 	if err != nil {
-		return fmt.Errorf("failed to get db connection during migrate up, error: %v", err)
+		return fmt.Errorf("failed to get db connection for migrations: %w", err)
 	}
 
 	n, err := migrate.Exec(sqlDB, "postgres", migrations, migrate.Up)
 	if err != nil {
-		return fmt.Errorf("failed to apply migration, error: %v", err)
+		return fmt.Errorf("failed to apply migrations: %w", err)
 	}
 
-	log.Printf("✅ Applied %d migrations!\n", n)
+	log.Printf("✅ Successfully applied %d migration(s)!\n", n)
 	return nil
 }
 
