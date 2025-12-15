@@ -36,18 +36,21 @@ func (r *SessionRepository) FindByID(ctx context.Context, id uuid.UUID) (*entiti
 	var session entities.Session
 	if err := r.db.WithContext(ctx).Where("id = ?", id).First(&session).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
+			fmt.Printf("🔴 [SESSION] Session not found for ID: %s\n", id.String())
 			return nil, entities.ErrSessionNotFound
 		}
+		fmt.Printf("🔴 [SESSION] DB error finding session %s: %v\n", id.String(), err)
 		return nil, fmt.Errorf("failed to find session by ID: %w", err)
 	}
+	fmt.Printf("🟢 [SESSION] Found session %s, expires_at: %v, revoked_at: %v\n", id.String(), session.ExpiresAt, session.RevokedAt)
 	return &session, nil
 }
 
-// FindByTokenHash finds a session by refresh token
-func (r *SessionRepository) FindByTokenHash(ctx context.Context, tokenHash string) (*entities.Session, error) {
+// FindByRefreshToken finds a session by refresh token
+func (r *SessionRepository) FindByRefreshToken(ctx context.Context, refreshToken string) (*entities.Session, error) {
 	var session entities.Session
 	if err := r.db.WithContext(ctx).
-		Where("token_hash = ? AND revoked_at IS NULL", tokenHash).
+		Where("refresh_token = ? AND revoked_at IS NULL", refreshToken).
 		First(&session).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, entities.ErrSessionNotFound

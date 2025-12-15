@@ -176,29 +176,57 @@ func (h *Auth) GoogleCallback(c echo.Context) error {
 
 // RefreshToken refreshes the access token
 // @Summary      Refresh access token
-// @Description  Gets a new access token using session_id from HttpOnly cookie. No request body needed.
+// @Description  Gets a new access token using session_id from HttpOnly cookie or header. No request body needed.
 // @Tags         Authentication
 // @Produce      json
+// @Param        session_id  header    string  false  "Session ID (alternative to cookie)"
 // @Success      200      {object}  map[string]interface{}  "Token refreshed successfully with access_token and expires_in"
-// @Failure      400      {object}  map[string]interface{}  "Invalid or missing session_id cookie"
+// @Failure      400      {object}  map[string]interface{}  "Invalid or missing session_id"
 // @Failure      401      {object}  map[string]interface{}  "Failed to refresh token"
 // @Router       /auth/refresh [post]
 func (h *Auth) RefreshToken(c echo.Context) error {
 	ctx := c.Request().Context()
 
-	// Read session_id from HttpOnly cookie
-	cookie, err := c.Cookie("session_id")
-	if err != nil || cookie == nil || cookie.Value == "" {
-		return HandleError(h.logger, c, errors.ErrInvalidToken())
+	var sessionIDValue string
+
+	// Try to get session_id from header first
+	sessionIDValue = c.Request().Header.Get("session_id")
+	if sessionIDValue == "" {
+		// Fallback to HttpOnly cookie
+		cookie, err := c.Cookie("session_id")
+		if err != nil || cookie == nil || cookie.Value == "" {
+			if h.logger != nil {
+				h.logger.Error("session_id missing from both header and cookie",
+					zap.String("header_value", c.Request().Header.Get("session_id")),
+					zap.String("cookie_err", fmt.Sprintf("%v", err)))
+			}
+			return HandleError(h.logger, c, errors.ErrInvalidToken())
+		}
+		sessionIDValue = cookie.Value
 	}
 
-	sid, err := uuid.Parse(cookie.Value)
+	if h.logger != nil {
+		h.logger.Info("session_id found",
+			zap.String("session_id", sessionIDValue))
+	}
+
+	sid, err := uuid.Parse(sessionIDValue)
 	if err != nil {
+		if h.logger != nil {
+			h.logger.Error("failed to parse session_id",
+				zap.String("session_id_value", sessionIDValue),
+				zap.Error(err))
+		}
 		return HandleError(h.logger, c, errors.ErrInvalidToken())
 	}
 
 	usecaseResp, err := h.oauthService.RefreshAccessTokenBySessionID(ctx, sid)
 	if err != nil {
+		if h.logger != nil {
+			h.logger.Error("refresh token failed",
+				zap.String("session_id", sid.String()),
+				zap.Error(err))
+		}
 		return HandleError(h.logger, c, err)
 	}
 

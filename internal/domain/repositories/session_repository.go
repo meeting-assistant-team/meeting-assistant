@@ -16,8 +16,8 @@ type SessionRepository interface {
 	// FindByID finds a session by ID
 	FindByID(ctx context.Context, id uuid.UUID) (*entities.Session, error)
 
-	// FindByTokenHash finds a session by token hash
-	FindByTokenHash(ctx context.Context, tokenHash string) (*entities.Session, error)
+	// FindByRefreshToken finds a session by refresh token
+	FindByRefreshToken(ctx context.Context, refreshToken string) (*entities.Session, error)
 
 	// FindByUserID finds all sessions for a user
 	FindByUserID(ctx context.Context, userID uuid.UUID) ([]*entities.Session, error)

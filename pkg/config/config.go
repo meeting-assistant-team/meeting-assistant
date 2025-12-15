@@ -77,6 +77,7 @@ type StorageConfig struct {
 	SecretAccessKey string `envconfig:"MINIO_SECRET_KEY"`
 	BucketName      string `envconfig:"MINIO_BUCKET_NAME"`
 	UseSSL          bool   `envconfig:"MINIO_USE_SSL"`
+	PublicURL       string `envconfig:"MINIO_PUBLIC_URL"` // Public URL for external access (e.g., https://minio.example.com)
 }
 
 // LiveKitConfig holds LiveKit configuration

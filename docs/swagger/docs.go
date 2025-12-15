@@ -149,7 +149,7 @@ const docTemplate = `{
         },
         "/auth/google/login": {
             "get": {
-                "description": "Redirects user to Google OAuth consent screen. Returns 307 Temporary Redirect.",
+                "description": "Redirects user to Google OAuth consent screen. State stored in-memory (15 min expiry) and as HttpOnly cookie (CSRF protection).",
                 "produces": [
                     "application/json"
                 ],
@@ -288,6 +288,45 @@ const docTemplate = `{
                     },
                     "401": {
                         "description": "Failed to refresh token",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/auth/test/token": {
+            "post": {
+                "description": "Generates a test JWT token for testing API with Postman. ONLY for development/testing. Use OAuth flow in production.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Authentication"
+                ],
+                "summary": "Generate test JWT token (Development Only)",
+                "parameters": [
+                    {
+                        "description": "User email (optional, default: test@example.com)",
+                        "name": "request",
+                        "in": "body",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "email": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "access_token, expires_in",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -1125,7 +1164,7 @@ const docTemplate = `{
         },
         "/webhooks/livekit": {
             "post": {
-                "description": "Receives webhook events from LiveKit server",
+                "description": "Receives webhook events from LiveKit server with JWT signature validation",
                 "consumes": [
                     "application/json"
                 ],
@@ -1144,8 +1183,8 @@ const docTemplate = `{
                             "additionalProperties": true
                         }
                     },
-                    "400": {
-                        "description": "Bad Request",
+                    "401": {
+                        "description": "Unauthorized",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true

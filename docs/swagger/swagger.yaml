@@ -299,8 +299,8 @@ paths:
       - Authentication
   /auth/google/login:
     get:
-      description: Redirects user to Google OAuth consent screen. Returns 307 Temporary
-        Redirect.
+      description: Redirects user to Google OAuth consent screen. State stored in-memory
+        (15 min expiry) and as HttpOnly cookie (CSRF protection).
       produces:
       - application/json
       responses:
@@ -397,6 +397,32 @@ paths:
             additionalProperties: true
             type: object
       summary: Refresh access token
+      tags:
+      - Authentication
+  /auth/test/token:
+    post:
+      consumes:
+      - application/json
+      description: Generates a test JWT token for testing API with Postman. ONLY for
+        development/testing. Use OAuth flow in production.
+      parameters:
+      - description: 'User email (optional, default: test@example.com)'
+        in: body
+        name: request
+        schema:
+          properties:
+            email:
+              type: string
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: access_token, expires_in
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Generate test JWT token (Development Only)
       tags:
       - Authentication
   /rooms:
@@ -952,7 +978,8 @@ paths:
     post:
       consumes:
       - application/json
-      description: Receives webhook events from LiveKit server
+      description: Receives webhook events from LiveKit server with JWT signature
+        validation
       produces:
       - application/json
       responses:
@@ -961,8 +988,8 @@ paths:
           schema:
             additionalProperties: true
             type: object
-        "400":
-          description: Bad Request
+        "401":
+          description: Unauthorized
           schema:
             additionalProperties: true
             type: object

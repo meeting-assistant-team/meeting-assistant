@@ -48,6 +48,11 @@ type TranscribeRequest struct {
 	AudioURL          string            `json:"audio_url"`
 	SpeakerLabels     bool              `json:"speaker_labels,omitempty"`
 	LanguageDetection bool              `json:"language_detection,omitempty"`
+	LanguageCode      string            `json:"language_code,omitempty"` // vi for Vietnamese
+	AutoChapters      bool              `json:"auto_chapters,omitempty"`
+	Summarization     bool              `json:"summarization,omitempty"`
+	SummaryModel      string            `json:"summary_model,omitempty"`
+	SummaryType       string            `json:"summary_type,omitempty"`
 	WebhookURL        string            `json:"webhook_url,omitempty"`
 	WebhookAuthHeader string            `json:"webhook_auth_header_name,omitempty"`
 	Metadata          map[string]string `json:"metadata,omitempty"`
@@ -59,13 +64,49 @@ type TranscribeResponse struct {
 	Status string `json:"status"`
 }
 
+// Utterance represents a speaker segment from AssemblyAI
+type Utterance struct {
+	Confidence float64 `json:"confidence"`
+	End        int     `json:"end"`
+	Start      int     `json:"start"`
+	Text       string  `json:"text"`
+	Speaker    string  `json:"speaker"`
+}
+
+// Chapter represents an auto-generated chapter from AssemblyAI
+type AssemblyAIChapter struct {
+	Gist     string `json:"gist"`
+	Headline string `json:"headline"`
+	Summary  string `json:"summary"`
+	Start    int    `json:"start"`
+	End      int    `json:"end"`
+}
+
+// FullTranscriptResponse contains complete transcript data from AssemblyAI
+type FullTranscriptResponse struct {
+	ID            string              `json:"id"`
+	Status        string              `json:"status"`
+	Text          string              `json:"text"`
+	Summary       string              `json:"summary"`
+	Chapters      []AssemblyAIChapter `json:"chapters"`
+	Utterances    []Utterance         `json:"utterances"`
+	LanguageCode  string              `json:"language_code"`
+	Confidence    float64             `json:"confidence"`
+	AudioDuration float64             `json:"audio_duration"`
+}
+
 // TranscribeAudio requests AssemblyAI to transcribe an external audio URL.
 // Returns the transcript job id on success.
 func (c *AssemblyAIClient) TranscribeAudio(ctx context.Context, recordingURL, webhookURL, webhookAuthHeader string, metadata map[string]string) (string, error) {
 	payload := TranscribeRequest{
 		AudioURL:          recordingURL,
 		SpeakerLabels:     true,
-		LanguageDetection: true,
+		LanguageDetection: false, // Use explicit Vietnamese
+		LanguageCode:      "vi",  // Vietnamese language
+		AutoChapters:      true,
+		Summarization:     true,
+		SummaryModel:      "informative",
+		SummaryType:       "bullets", // bullets or paragraph
 		WebhookURL:        webhookURL,
 		WebhookAuthHeader: webhookAuthHeader,
 		Metadata:          metadata,
@@ -79,6 +120,7 @@ func (c *AssemblyAIClient) TranscribeAudio(ctx context.Context, recordingURL, we
 	if err != nil {
 		return "", err
 	}
+	// AssemblyAI expects Authorization header with just the API key (no Bearer prefix)
 	req.Header.Set("Authorization", c.apiKey)
 	req.Header.Set("Content-Type", "application/json")
 

@@ -202,7 +202,7 @@ func (s *OAuthService) RefreshAccessToken(ctx context.Context, refreshToken stri
 	}
 
 	// Check if session exists and not revoked
-	session, err := s.sessionRepo.FindByTokenHash(ctx, refreshToken)
+	session, err := s.sessionRepo.FindByRefreshToken(ctx, refreshToken)
 	if err != nil {
 		return nil, fmt.Errorf("session not found: %w", err)
 	}
@@ -237,19 +237,28 @@ func (s *OAuthService) RefreshAccessTokenBySessionID(ctx context.Context, sessio
 		return nil, fmt.Errorf("database not initialized: cannot refresh token without DB")
 	}
 
+	fmt.Printf("🔍 [REFRESH] Looking for session: %s\n", sessionID.String())
+
 	// Find session by ID
 	session, err := s.sessionRepo.FindByID(ctx, sessionID)
 	if err != nil {
+		fmt.Printf("🔴 [REFRESH] Session not found: %v\n", err)
 		return nil, entities.ErrSessionNotFound
 	}
 
+	fmt.Printf("✅ [REFRESH] Session found, checking expiry...\n")
+
 	// Check if session is expired or revoked
 	if session.IsExpired() {
+		fmt.Printf("🔴 [REFRESH] Session expired\n")
 		return nil, entities.ErrSessionExpired
 	}
 	if session.RevokedAt != nil {
+		fmt.Printf("🔴 [REFRESH] Session revoked\n")
 		return nil, entities.ErrInvalidToken
 	}
+
+	fmt.Printf("✅ [REFRESH] Session valid, generating new access token\n")
 
 	// Update last used (non-fatal)
 	_ = s.sessionRepo.UpdateLastUsed(ctx, session.ID)
@@ -265,6 +274,8 @@ func (s *OAuthService) RefreshAccessTokenBySessionID(ctx context.Context, sessio
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate access token: %w", err)
 	}
+
+	fmt.Printf("✅ [REFRESH] New access token generated\n")
 
 	return &AuthResponse{
 		User:        user,
@@ -306,7 +317,7 @@ func (s *OAuthService) Logout(ctx context.Context, refreshToken string) error {
 		return fmt.Errorf("database not initialized: cannot logout without DB")
 	}
 
-	session, err := s.sessionRepo.FindByTokenHash(ctx, refreshToken)
+	session, err := s.sessionRepo.FindByRefreshToken(ctx, refreshToken)
 	if err != nil {
 		return entities.ErrSessionNotFound
 	}
