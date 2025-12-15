@@ -4,6 +4,8 @@ import (
 	"github.com/labstack/echo/v4"
 	"go.uber.org/zap"
 
+	"github.com/johnquangdev/meeting-assistant/internal/adapter/repository"
+	"github.com/johnquangdev/meeting-assistant/internal/infrastructure/storage"
 	aiUsecase "github.com/johnquangdev/meeting-assistant/internal/usecase/ai"
 	roomUsecase "github.com/johnquangdev/meeting-assistant/internal/usecase/room"
 )
@@ -12,16 +14,20 @@ import (
 type WebhookHandler struct {
 	roomService   roomUsecase.Service
 	aiService     aiUsecase.Service
+	minioClient   *storage.MinIOClient
+	recordingRepo *repository.RecordingRepository
 	livekitAPIKey string
 	livekitSecret string
 	logger        *zap.Logger
 }
 
 // NewWebhookHandler creates a new webhook handler
-func NewWebhookHandler(roomService roomUsecase.Service, aiService aiUsecase.Service, livekitAPIKey string, livekitSecret string, logger *zap.Logger) *WebhookHandler {
+func NewWebhookHandler(roomService roomUsecase.Service, aiService aiUsecase.Service, minioClient *storage.MinIOClient, recordingRepo *repository.RecordingRepository, livekitAPIKey string, livekitSecret string, logger *zap.Logger) *WebhookHandler {
 	return &WebhookHandler{
 		roomService:   roomService,
 		aiService:     aiService,
+		minioClient:   minioClient,
+		recordingRepo: recordingRepo,
 		livekitAPIKey: livekitAPIKey,
 		livekitSecret: livekitSecret,
 		logger:        logger,

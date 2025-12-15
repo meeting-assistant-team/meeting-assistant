@@ -81,16 +81,39 @@ func (s *RoomService) CreateRoom(ctx context.Context, input CreateRoomInput) (*C
 	// Generate LiveKit room name
 	livekitRoomName := fmt.Sprintf("room-%s", uuid.New().String())
 
-	// Create room in LiveKit
+	// Create auto-recording egress config for all tracks
+	// Filepath pattern includes {track_type} and {track_id} to avoid overwriting files
+	// {track_type} = audio or video
+	// {track_id} = unique track identifier
+	egressConfig := &livekit.RoomEgress{
+		Tracks: &livekit.AutoTrackEgress{
+			Filepath: "{room_name}/{publisher_identity}/{track_type}-{track_id}-{time}",
+			Output: &livekit.AutoTrackEgress_S3{
+				S3: &livekit.S3Upload{
+					AccessKey:      s.storageConfig.AccessKeyID,
+					Secret:         s.storageConfig.SecretAccessKey,
+					Bucket:         s.storageConfig.BucketName,
+					Endpoint:       s.storageConfig.GetS3Endpoint(),
+					ForcePathStyle: true,
+					Region:         "us-east-1",
+				},
+			},
+		},
+	}
+
+	// Create room in LiveKit with auto-recording enabled
 	roomInfo, err := s.livekitClient.CreateRoom(ctx, livekitRoomName, &lkpkg.CreateRoomOptions{
 		MaxParticipants:  int32(input.MaxParticipants),
 		EmptyTimeout:     300, // 5 minutes - auto-delete if no one joins
 		DepartureTimeout: 30,  // 30 seconds - auto-delete after last person leaves
 		Metadata:         fmt.Sprintf(`{"name":"%s"}`, input.Name),
+		Egress:           egressConfig,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create livekit room: %w", err)
 	}
+
+	log.Printf("[Room] ✅ Room created with auto-recording enabled: %s", livekitRoomName)
 
 	// Create room entity
 	room := &entities.Room{
@@ -157,41 +180,6 @@ func (s *RoomService) CreateRoom(ctx context.Context, input CreateRoomInput) (*C
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate livekit token: %w", err)
 	}
-
-	// Start egress recording to MinIO S3 - REQUIRED before room creation completes
-	egressCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	req := &livekit.RoomCompositeEgressRequest{
-		RoomName: livekitRoomName,
-		Layout:   "grid",
-		FileOutputs: []*livekit.EncodedFileOutput{
-			{
-				FileType: livekit.EncodedFileType_MP4,
-				Filepath: "{room_name}-{time}.mp4",
-				Output: &livekit.EncodedFileOutput_S3{
-					S3: &livekit.S3Upload{
-						AccessKey:      s.storageConfig.AccessKeyID,
-						Secret:         s.storageConfig.SecretAccessKey,
-						Bucket:         s.storageConfig.BucketName,
-						Endpoint:       s.storageConfig.GetS3Endpoint(),
-						ForcePathStyle: true,
-						Region:         "us-east-1",
-					},
-				},
-			},
-		},
-	}
-
-	resp, err := s.egressClient.StartRoomCompositeEgress(egressCtx, req)
-	if err != nil {
-		// Cleanup: delete room and LiveKit room since egress is required
-		_ = s.roomRepo.Delete(context.Background(), room.ID)
-		_ = s.livekitClient.DeleteRoom(context.Background(), livekitRoomName)
-		return nil, fmt.Errorf("failed to start egress recording for room: %w", err)
-	}
-
-	log.Printf("[Room] ✅ Egress recording started for room %s with ID: %s", livekitRoomName, resp.EgressId)
 
 	return &CreateRoomOutput{
 		Room:          room,
@@ -426,15 +414,20 @@ func (s *RoomService) LeaveRoom(ctx context.Context, roomID, userID uuid.UUID) e
 		return fmt.Errorf("failed to get participant: %w", err)
 	}
 
+	// Check if participant was actually joined (not just waiting)
+	wasJoined := participant.Status == entities.ParticipantStatusJoined
+
 	// Mark as left
 	participant.Leave()
 	if err := s.participantRepo.Update(ctx, participant); err != nil {
 		return fmt.Errorf("failed to update participant: %w", err)
 	}
 
-	// Decrement participant count
-	if err := s.roomRepo.DecrementParticipantCount(ctx, roomID); err != nil {
-		return fmt.Errorf("failed to decrement participant count: %w", err)
+	// Only decrement count if participant was actually joined (not waiting/denied/etc)
+	if wasJoined {
+		if err := s.roomRepo.DecrementParticipantCount(ctx, roomID); err != nil {
+			return fmt.Errorf("failed to decrement participant count: %w", err)
+		}
 	}
 
 	// Check if room should auto-end (no active participants)
@@ -448,8 +441,8 @@ func (s *RoomService) LeaveRoom(ctx context.Context, roomID, userID uuid.UUID) e
 		if err := s.roomRepo.EndRoom(ctx, roomID); err != nil {
 			return fmt.Errorf("failed to end room: %w", err)
 		}
-	} else if participant.IsHost() {
-		// If host left, promote another participant
+	} else if wasJoined && participant.IsHost() {
+		// If host left, promote another participant (only if host was actually joined)
 		if err := s.promoteNewHost(ctx, roomID); err != nil {
 			return fmt.Errorf("failed to promote new host: %w", err)
 		}
@@ -628,8 +621,6 @@ func (s *RoomService) DenyParticipant(ctx context.Context, roomID, hostID, parti
 	if err := s.participantRepo.UpdateStatus(ctx, participantID, entities.ParticipantStatusDenied); err != nil {
 		return fmt.Errorf("failed to deny participant: %w", err)
 	}
-
-	// TODO: Optionally store denial reason if needed
 
 	return nil
 }

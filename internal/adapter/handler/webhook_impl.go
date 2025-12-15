@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
@@ -13,6 +14,8 @@ import (
 	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/webhook"
 	"go.uber.org/zap"
+
+	"github.com/johnquangdev/meeting-assistant/internal/domain/entities"
 )
 
 // HandleLiveKitWebhook processes LiveKit webhook events with proper signature validation
@@ -250,31 +253,68 @@ func (h *WebhookHandler) handleEgressEndedV2(c echo.Context, event *livekit.Webh
 
 	c.Logger().Infof("🎬 Egress ended: %s (room: %s)", egressID, roomName)
 
+	// Get context early for MinIO operations
+	ctx := c.Request().Context()
+
 	// Extract recording URL from FileResults
-	// LiveKit doesn't return the full S3 URL in fileResults, so we construct it
+	// LiveKit creates separate audio and video track files
+	// AssemblyAI needs audio files only (.ogg, .mp3, .wav, etc.)
 	var recordingURL string
+	var filename string
 
 	if len(event.EgressInfo.FileResults) > 0 {
-		fileResult := event.EgressInfo.FileResults[0]
-		filename := fileResult.Filename
+		// Find the audio file from the results
+		// Audio files typically have extensions: .ogg, .mp3, .wav, .m4a
+		var audioFilename string
+		for _, fileResult := range event.EgressInfo.FileResults {
+			fname := fileResult.Filename
+			// Check if it's an audio file
+			if strings.HasSuffix(strings.ToLower(fname), ".ogg") ||
+				strings.HasSuffix(strings.ToLower(fname), ".mp3") ||
+				strings.HasSuffix(strings.ToLower(fname), ".wav") ||
+				strings.HasSuffix(strings.ToLower(fname), ".m4a") ||
+				strings.Contains(strings.ToLower(fname), "audio-") {
+				audioFilename = fname
+				break
+			}
+		}
 
-		h.logger.Info("🔍 FileResult received",
+		// If no audio file found, skip this egress event
+		if audioFilename == "" {
+			h.logger.Info("⏭️  No audio file in this egress, skipping AssemblyAI submission (likely video-only egress)",
+				zap.Int("file_count", len(event.EgressInfo.FileResults)))
+			return HandleSuccess(h.logger, c, map[string]interface{}{"status": "ok", "event": "egress_ended_no_audio"})
+		}
+
+		filename = audioFilename
+
+		h.logger.Info("🔍 Audio file found in egress results",
 			zap.String("filename", filename),
-			zap.Int("file_count", len(event.EgressInfo.FileResults)))
+			zap.Int("total_files", len(event.EgressInfo.FileResults)))
 
 		if filename != "" {
-			// Construct S3 URL from the configuration
-			// S3 bucket and endpoint configured in egress request
-			// For MinIO: s3://bucket/filename
-			bucketName := os.Getenv("MINIO_BUCKET_NAME")
-			if bucketName == "" {
-				bucketName = "meeting-recordings"
+			// Generate presigned URL from MinIO for AssemblyAI access
+			// URL expires in 24 hours (enough time for AssemblyAI to download and process)
+			if h.minioClient != nil {
+				presignedURL, err := h.minioClient.GetFileURL(ctx, filename, 24*time.Hour)
+				if err != nil {
+					h.logger.Error("❌ Failed to generate presigned URL",
+						zap.String("filename", filename),
+						zap.Error(err))
+				} else {
+					recordingURL = presignedURL
+					h.logger.Info("✅ Generated presigned URL for audio file",
+						zap.String("filename", filename),
+						zap.String("presigned_url", recordingURL))
+				}
+			} else {
+				h.logger.Warn("⚠️ MinIO client not available, using S3 path")
+				bucketName := os.Getenv("MINIO_BUCKET_NAME")
+				if bucketName == "" {
+					bucketName = "meeting-recordings"
+				}
+				recordingURL = "s3://" + bucketName + "/" + filename
 			}
-			recordingURL = "s3://" + bucketName + "/" + filename
-			h.logger.Info("✅ Constructed S3 URL",
-				zap.String("filename", filename),
-				zap.String("bucket", bucketName),
-				zap.String("s3_url", recordingURL))
 		} else {
 			h.logger.Warn("⚠️ FileResult filename is empty")
 		}
@@ -292,7 +332,6 @@ func (h *WebhookHandler) handleEgressEndedV2(c echo.Context, event *livekit.Webh
 		return HandleSuccess(h.logger, c, map[string]interface{}{"status": "ok"})
 	}
 
-	ctx := c.Request().Context()
 	roomEntity, err := h.roomService.GetRoomByLivekitName(ctx, roomName)
 	if err != nil {
 		h.logger.Error("failed to find room", zap.String("room_name", roomName), zap.Error(err))
@@ -304,6 +343,28 @@ func (h *WebhookHandler) handleEgressEndedV2(c echo.Context, event *livekit.Webh
 		zap.String("room_name", roomName),
 		zap.String("egress_id", egressID),
 		zap.String("recording_url", recordingURL))
+
+	// Create recording record in database for tracking
+	recording := &entities.Recording{
+		RoomID:          roomEntity.ID,
+		LivekitEgressID: &egressID,
+		Status:          entities.RecordingStatusCompleted,
+		FilePath:        &filename,
+		FileURL:         &recordingURL,
+		StartedAt:       time.Now(), // Ideally should be from egress info
+	}
+
+	// Save recording to database
+	if err := h.recordingRepo.Create(ctx, recording); err != nil {
+		h.logger.Error("❌ failed to save recording to database",
+			zap.String("room_id", roomEntity.ID.String()),
+			zap.String("egress_id", egressID),
+			zap.Error(err))
+		// Continue anyway - don't block AI processing
+	} else {
+		h.logger.Info("✅ Recording saved to database",
+			zap.String("recording_id", recording.ID.String()))
+	}
 
 	// Submit to AssemblyAI for transcription
 	if err := h.aiService.SubmitToAssemblyAI(ctx, roomEntity.ID, recordingURL); err != nil {

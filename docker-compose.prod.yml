@@ -32,8 +32,8 @@ services:
       - SHUTDOWN_TIMEOUT=${SHUTDOWN_TIMEOUT:-10}
       
       # Database Configuration
-      - DB_HOST=postgres
-      - DB_PORT=5432
+      - DB_HOST=${DB_HOST:-postgres}
+      - DB_PORT=${DB_PORT:-5432}
       - DB_USER=${DB_USER}
       - DB_PASSWORD=${DB_PASSWORD}
       - DB_NAME=${DB_NAME}
@@ -64,6 +64,7 @@ services:
       - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
       - MINIO_USE_SSL=${MINIO_USE_SSL:-false}
       - MINIO_BUCKET_NAME=${MINIO_BUCKET_NAME:-meeting-recordings}
+      - MINIO_PUBLIC_URL=${MINIO_PUBLIC_URL}
       
       # OpenAI Configuration
       - OPENAI_API_KEY=${OPENAI_API_KEY}
@@ -91,10 +92,65 @@ services:
       retries: 3
       start_period: 40s
 
+  minio:
+    image: minio/minio:latest
+    container_name: meeting-assistant-minio-prod
+    restart: always
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
+      MINIO_SERVER_URL: ${MINIO_PUBLIC_URL}
+      MINIO_BROWSER_REDIRECT_URL: https://minio-console.infoquang.id.vn
+    volumes:
+      - minio_data:/data
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    labels:
+      # Enable Traefik
+      - "traefik.enable=true"
+      
+      # MinIO API (port 9000) - For S3 operations and presigned URLs
+      - "traefik.http.routers.minio-api.rule=Host(`minio.infoquang.id.vn`)"
+      - "traefik.http.routers.minio-api.entrypoints=websecure"
+      - "traefik.http.routers.minio-api.tls=true"
+      - "traefik.http.routers.minio-api.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.minio-api.service=minio-api"
+      - "traefik.http.services.minio-api.loadbalancer.server.port=9000"
+      
+      # HTTP to HTTPS redirect for API
+      - "traefik.http.routers.minio-api-http.rule=Host(`minio.infoquang.id.vn`)"
+      - "traefik.http.routers.minio-api-http.entrypoints=web"
+      - "traefik.http.routers.minio-api-http.middlewares=redirect-to-https@docker"
+      
+      # MinIO Console (port 9001) - For web UI
+      - "traefik.http.routers.minio-console.rule=Host(`minio-console.infoquang.id.vn`)"
+      - "traefik.http.routers.minio-console.entrypoints=websecure"
+      - "traefik.http.routers.minio-console.tls=true"
+      - "traefik.http.routers.minio-console.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.minio-console.service=minio-console"
+      - "traefik.http.services.minio-console.loadbalancer.server.port=9001"
+      
+      # HTTP to HTTPS redirect for Console
+      - "traefik.http.routers.minio-console-http.rule=Host(`minio-console.infoquang.id.vn`)"
+      - "traefik.http.routers.minio-console-http.entrypoints=web"
+      - "traefik.http.routers.minio-console-http.middlewares=redirect-to-https@docker"
+      
+      # Middleware for HTTPS redirect
+      - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
+      - "traefik.http.middlewares.redirect-to-https.redirectscheme.permanent=true"
+
 networks:
   app-network:
     driver: bridge
 
 volumes:
   postgres_data:
+    driver: local
+  minio_data:
     driver: local

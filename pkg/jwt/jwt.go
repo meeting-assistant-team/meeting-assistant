@@ -1,8 +1,6 @@
 package jwt
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"time"
 
@@ -120,14 +118,4 @@ func (m *Manager) GetAccessExpiry() time.Duration {
 // GetRefreshExpiry returns refresh token expiry duration
 func (m *Manager) GetRefreshExpiry() time.Duration {
 	return m.refreshExpiry
-}
-
-// HashToken returns the SHA-256 hex digest of the provided token string.
-// This is used to store a non-reversible representation of refresh tokens in the DB.
-func (m *Manager) HashToken(token string) (string, error) {
-	if token == "" {
-		return "", fmt.Errorf("token is empty")
-	}
-	h := sha256.Sum256([]byte(token))
-	return hex.EncodeToString(h[:]), nil
 }

@@ -18,6 +18,7 @@ type Router struct {
 	webhookHandler   *WebhookHandler
 	aiWebhookHandler *AIWebhookHandler
 	aiController     *AIController
+	storageTest      *StorageTest
 	authMW           echo.MiddlewareFunc
 	// Add more handlers here as needed
 	// recordingHandler *Recording
@@ -25,7 +26,7 @@ type Router struct {
 }
 
 // NewRouter creates a new router with all handlers
-func NewRouter(cfg *config.Config, authHandler *Auth, roomHandler *Room, webhookHandler *WebhookHandler, aiWebhookHandler *AIWebhookHandler, aiController *AIController, authMW echo.MiddlewareFunc) *Router {
+func NewRouter(cfg *config.Config, authHandler *Auth, roomHandler *Room, webhookHandler *WebhookHandler, aiWebhookHandler *AIWebhookHandler, aiController *AIController, storageTest *StorageTest, authMW echo.MiddlewareFunc) *Router {
 	return &Router{
 		cfg:              cfg,
 		authHandler:      authHandler,
@@ -33,6 +34,7 @@ func NewRouter(cfg *config.Config, authHandler *Auth, roomHandler *Room, webhook
 		webhookHandler:   webhookHandler,
 		aiWebhookHandler: aiWebhookHandler,
 		aiController:     aiController,
+		storageTest:      storageTest,
 		authMW:           authMW,
 	}
 }
@@ -52,6 +54,7 @@ func (rt *Router) Setup(e *echo.Echo) {
 	rt.setupAuthRoutes(v1)
 	rt.setupRoomRoutes(v1)
 	rt.setupWebhookRoutes(v1)
+	rt.setupTestRoutes(v1)
 	// AI endpoints
 	if rt.aiController != nil {
 		v1.POST("/meetings/:id/process-ai", rt.aiController.ProcessMeeting)
@@ -159,6 +162,24 @@ func (rt *Router) setupWebhookRoutes(g *echo.Group) {
 		webhookGroup.POST("/assemblyai", rt.aiWebhookHandler.HandleAssemblyAIWebhook)
 	} else {
 		webhookGroup.POST("/assemblyai", rt.notImplemented)
+	}
+}
+
+// setupTestRoutes configures test routes (development only)
+func (rt *Router) setupTestRoutes(g *echo.Group) {
+	testGroup := g.Group("/test")
+
+	if rt.storageTest != nil {
+		// Storage test endpoints
+		testGroup.POST("/storage/upload", rt.storageTest.TestUpload)
+		testGroup.GET("/storage/info", rt.storageTest.TestBucketInfo)
+		testGroup.GET("/storage/files", rt.storageTest.TestListFiles)
+		testGroup.GET("/storage/download-url", rt.storageTest.TestDownloadURL)
+	} else {
+		testGroup.POST("/storage/upload", rt.notImplemented)
+		testGroup.GET("/storage/info", rt.notImplemented)
+		testGroup.GET("/storage/files", rt.notImplemented)
+		testGroup.GET("/storage/download-url", rt.notImplemented)
 	}
 }
 

@@ -76,35 +76,18 @@ func (s *aiService) SubmitToAssemblyAI(ctx context.Context, meetingID uuid.UUID,
 		return fmt.Errorf("recording URL is required")
 	}
 
-	// Check if AI job already exists for this meeting
-	existingJob, err := s.aiJobRepo.GetAIJobByMeetingID(ctx, meetingID, entities.AIJobTypeTranscription)
-	if err != nil {
-		return fmt.Errorf("failed to check existing AI job: %w", err)
+	// Create new AI job for each recording (each egress can have multiple files - audio, video, etc.)
+	// We should create separate jobs to track each transcription properly
+	aiJob := entities.NewAIJob(meetingID, entities.AIJobTypeTranscription, recordingURL)
+	if err := s.aiJobRepo.CreateAIJob(ctx, aiJob); err != nil {
+		return fmt.Errorf("failed to create AI job: %w", err)
 	}
-
-	var aiJob *entities.AIJob
-
-	// If job doesn't exist, create new one
-	if existingJob == nil {
-		aiJob = entities.NewAIJob(meetingID, entities.AIJobTypeTranscription, recordingURL)
-		if err := s.aiJobRepo.CreateAIJob(ctx, aiJob); err != nil {
-			return fmt.Errorf("failed to create AI job: %w", err)
-		}
-		if s.logger != nil {
-			s.logger.Info("✅ created new AI job",
-				zap.String("job_id", aiJob.ID.String()),
-				zap.String("meeting_id", meetingID.String()),
-			)
-		}
-	} else {
-		// Use existing job
-		aiJob = existingJob
-		if s.logger != nil {
-			s.logger.Warn("⚠️ Using existing AI job for this meeting",
-				zap.String("job_id", aiJob.ID.String()),
-				zap.String("meeting_id", meetingID.String()),
-			)
-		}
+	if s.logger != nil {
+		s.logger.Info("✅ Created new AI job",
+			zap.String("job_id", aiJob.ID.String()),
+			zap.String("meeting_id", meetingID.String()),
+			zap.String("recording_url", recordingURL),
+		)
 	}
 
 	// Submit to AssemblyAI with retry logic
@@ -282,9 +265,47 @@ func (s *aiService) storeTranscriptFromWebhook(ctx context.Context, aiJob *entit
 		transcript.Text = text
 	}
 
+	// Extract summary
+	if summary, ok := webhookData["summary"].(string); ok {
+		transcript.Summary = summary
+	}
+
+	// Extract chapters
+	if chaptersData, ok := webhookData["chapters"].([]interface{}); ok && len(chaptersData) > 0 {
+		chapters := make([]entities.Chapter, 0, len(chaptersData))
+		for _, chapterData := range chaptersData {
+			if chapterMap, ok := chapterData.(map[string]interface{}); ok {
+				chapter := entities.Chapter{}
+				if gist, ok := chapterMap["gist"].(string); ok {
+					chapter.Gist = gist
+				}
+				if headline, ok := chapterMap["headline"].(string); ok {
+					chapter.Headline = headline
+				}
+				if summary, ok := chapterMap["summary"].(string); ok {
+					chapter.Summary = summary
+				}
+				if start, ok := chapterMap["start"].(float64); ok {
+					chapter.Start = start / 1000.0 // Convert ms to seconds
+				}
+				if end, ok := chapterMap["end"].(float64); ok {
+					chapter.End = end / 1000.0 // Convert ms to seconds
+				}
+				chapters = append(chapters, chapter)
+			}
+		}
+		// Set chapters - GORM will handle JSONB serialization
+		transcript.Chapters = chapters
+	}
+
 	// Extract language
 	if lang, ok := webhookData["language_code"].(string); ok {
 		transcript.Language = lang
+	}
+
+	// Extract confidence
+	if confidence, ok := webhookData["confidence"].(float64); ok {
+		transcript.ConfidenceScore = confidence
 	}
 
 	// Extract speaker count if available
@@ -308,20 +329,66 @@ func (s *aiService) storeTranscriptFromWebhook(ctx context.Context, aiJob *entit
 		return fmt.Errorf("failed to store transcript: %w", err)
 	}
 
+	if s.logger != nil {
+		s.logger.Info("✅ transcript stored successfully",
+			zap.String("transcript_id", transcript.ID.String()),
+			zap.String("meeting_id", aiJob.MeetingID.String()),
+			zap.Int("text_length", len(transcript.Text)),
+			zap.Int("summary_length", len(transcript.Summary)),
+		)
+	}
+
+	// Extract and store utterances (speaker segments)
+	if utterancesData, ok := webhookData["utterances"].([]interface{}); ok && len(utterancesData) > 0 {
+		utterances := make([]entities.TranscriptUtterance, 0, len(utterancesData))
+		for _, uttData := range utterancesData {
+			if uttMap, ok := uttData.(map[string]interface{}); ok {
+				utterance := entities.TranscriptUtterance{
+					TranscriptID: transcript.ID,
+				}
+				if text, ok := uttMap["text"].(string); ok {
+					utterance.Text = text
+				}
+				if speaker, ok := uttMap["speaker"].(string); ok {
+					utterance.Speaker = speaker
+				}
+				if start, ok := uttMap["start"].(float64); ok {
+					utterance.StartTime = start / 1000.0 // Convert ms to seconds
+				}
+				if end, ok := uttMap["end"].(float64); ok {
+					utterance.EndTime = end / 1000.0 // Convert ms to seconds
+				}
+				if confidence, ok := uttMap["confidence"].(float64); ok {
+					utterance.Confidence = confidence
+				}
+				utterances = append(utterances, utterance)
+			}
+		}
+
+		// Store all utterances in one transaction
+		if len(utterances) > 0 {
+			if err := s.transcriptRepo.CreateTranscriptUtterances(ctx, utterances); err != nil {
+				if s.logger != nil {
+					s.logger.Error("failed to create transcript utterances", zap.Error(err))
+				}
+				// Don't fail the whole operation if utterances fail to save
+			} else {
+				if s.logger != nil {
+					s.logger.Info("✅ stored transcript utterances",
+						zap.String("transcript_id", transcript.ID.String()),
+						zap.Int("utterance_count", len(utterances)),
+					)
+				}
+			}
+		}
+	}
+
 	// Mark AI job as completed
 	if err := s.aiJobRepo.MarkJobAsCompleted(ctx, aiJob.ID, &transcript.ID); err != nil {
 		if s.logger != nil {
 			s.logger.Error("failed to mark job as completed", zap.Error(err))
 		}
 		return fmt.Errorf("failed to update job status: %w", err)
-	}
-
-	if s.logger != nil {
-		s.logger.Info("transcript stored successfully",
-			zap.String("transcript_id", transcript.ID.String()),
-			zap.String("meeting_id", aiJob.MeetingID.String()),
-			zap.Int("text_length", len(transcript.Text)),
-		)
 	}
 
 	return nil

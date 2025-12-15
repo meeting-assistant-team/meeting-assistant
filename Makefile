@@ -55,10 +55,13 @@ build-docker-rebuild: docker-rebuild docker-up ## Rebuild Docker image (no cache
 build-docker-clean: docker-prune build-docker-rebuild ## Clean Docker resources then rebuild
 
 run: ## Run the application
-	@echo "Running application..."
-	@echo "Checking for existing process on port 8080..."
+	@echo "Running application locally..."
+	@docker-compose stop app 2>/dev/null || true
 	@lsof -ti:8080 | xargs kill -9 2>/dev/null || true
 	air
+
+run-prod: ## Run app in Docker container
+	@docker-compose up -d app
 
 dev-full: db-up dev ## Start database and run in development mode
 

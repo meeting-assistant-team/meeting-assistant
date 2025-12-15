@@ -24,6 +24,7 @@ import (
 	"github.com/johnquangdev/meeting-assistant/internal/infrastructure/external/livekit"
 	"github.com/johnquangdev/meeting-assistant/internal/infrastructure/external/oauth"
 	httpmw "github.com/johnquangdev/meeting-assistant/internal/infrastructure/http/middleware"
+	"github.com/johnquangdev/meeting-assistant/internal/infrastructure/storage"
 	aiuse "github.com/johnquangdev/meeting-assistant/internal/usecase/ai"
 	"github.com/johnquangdev/meeting-assistant/internal/usecase/auth"
 	"github.com/johnquangdev/meeting-assistant/internal/usecase/room"
@@ -114,6 +115,7 @@ func main() {
 	participantRepo := repository.NewParticipantRepository(db)
 	aiJobRepo := repository.NewAIJobRepository(db)
 	transcriptRepo := repository.NewTranscriptRepository(db)
+	recordingRepo := repository.NewRecordingRepository(db)
 
 	// Initialize AI repository and clients
 	log.Println("🤖 Initializing AI components...")
@@ -187,10 +189,30 @@ func main() {
 	roomHandler := handler.NewRoomHandler(roomService, logger)
 	log.Println("✅ Room handler initialized successfully")
 
+	// Initialize MinIO client for generating presigned URLs
+	log.Println("💾 Initializing MinIO client...")
+	minioClient, err := storage.NewMinIOClient(&cfg.Storage)
+	if err != nil {
+		log.Printf("⚠️  Failed to initialize MinIO client: %v", err)
+		minioClient = nil
+	} else {
+		log.Println("✅ MinIO client initialized successfully")
+	}
+
 	// Initialize webhook handler (for LiveKit webhooks)
 	log.Println("🪝 Initializing webhook handler...")
-	webhookHandler := handler.NewWebhookHandler(roomService, aiService, cfg.LiveKit.APIKey, cfg.LiveKit.APISecret, logger)
+	webhookHandler := handler.NewWebhookHandler(roomService, aiService, minioClient, recordingRepo, cfg.LiveKit.APIKey, cfg.LiveKit.APISecret, logger)
 	log.Println("✅ Webhook handler initialized successfully")
+
+	// Initialize storage test handler
+	log.Println("💾 Initializing storage test handler...")
+	storageTestHandler, err := handler.NewStorageTest(cfg, logger)
+	if err != nil {
+		log.Printf("⚠️  Failed to initialize storage test handler: %v", err)
+		storageTestHandler = nil
+	} else {
+		log.Println("✅ Storage test handler initialized successfully")
+	}
 
 	// Setup router with handlers
 	log.Println("🛣️  Setting up routes...")
@@ -198,7 +220,7 @@ func main() {
 	// Create Echo auth middleware from existing OAuth service
 	authEchoMW := httpmw.EchoAuth(oauthService)
 
-	router := handler.NewRouter(cfg, authHandler, roomHandler, webhookHandler, aiWebhookHandler, aiController, authEchoMW)
+	router := handler.NewRouter(cfg, authHandler, roomHandler, webhookHandler, aiWebhookHandler, aiController, storageTestHandler, authEchoMW)
 	router.Setup(e)
 
 	// Start server

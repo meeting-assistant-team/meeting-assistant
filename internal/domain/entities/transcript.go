@@ -31,6 +31,8 @@ type Transcript struct {
 	RecordingID     string                                     `json:"recording_id,omitempty" gorm:"type:varchar(255)"`
 	RoomID          string                                     `json:"room_id,omitempty" gorm:"type:varchar(255);index"`
 	Text            string                                     `json:"text" gorm:"type:text"`
+	Summary         string                                     `json:"summary,omitempty" gorm:"type:text"`
+	Chapters        []Chapter                                  `json:"chapters,omitempty" gorm:"type:jsonb;serializer:json"`
 	Language        string                                     `json:"language,omitempty" gorm:"type:varchar(20)"`
 	Segments        []Segment                                  `json:"segments,omitempty" gorm:"type:jsonb;serializer:json"`
 	Words           []WordTimestamp                            `json:"words,omitempty" gorm:"type:jsonb;serializer:json"`

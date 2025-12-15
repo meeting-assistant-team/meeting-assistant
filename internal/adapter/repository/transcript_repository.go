@@ -86,3 +86,23 @@ func (r *TranscriptRepository) StoreTranscriptData(ctx context.Context, transcri
 func (r *TranscriptRepository) DeleteTranscript(ctx context.Context, id uuid.UUID) error {
 	return r.db.WithContext(ctx).Delete(&entities.Transcript{}, id).Error
 }
+
+// CreateTranscriptUtterances creates multiple utterances for a transcript
+func (r *TranscriptRepository) CreateTranscriptUtterances(ctx context.Context, utterances []entities.TranscriptUtterance) error {
+	if len(utterances) == 0 {
+		return nil
+	}
+	return r.db.WithContext(ctx).Create(&utterances).Error
+}
+
+// GetTranscriptUtterances retrieves all utterances for a transcript
+func (r *TranscriptRepository) GetTranscriptUtterances(ctx context.Context, transcriptID uuid.UUID) ([]entities.TranscriptUtterance, error) {
+	var utterances []entities.TranscriptUtterance
+	if err := r.db.WithContext(ctx).
+		Where("transcript_id = ?", transcriptID).
+		Order("start_time ASC").
+		Find(&utterances).Error; err != nil {
+		return nil, err
+	}
+	return utterances, nil
+}

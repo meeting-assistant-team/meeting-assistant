@@ -26,6 +26,7 @@ type CreateRoomOptions struct {
 	EmptyTimeout     int32 // seconds - auto-delete if no one joins
 	DepartureTimeout int32 // seconds - auto-delete after last participant leaves
 	Metadata         string
+	Egress           *livekit.RoomEgress // Auto-recording configuration
 }
 
 // TokenOptions holds options for generating access token
@@ -103,6 +104,7 @@ func (c *realClient) CreateRoom(ctx context.Context, name string, options *Creat
 		EmptyTimeout:     uint32(options.EmptyTimeout),
 		DepartureTimeout: uint32(options.DepartureTimeout),
 		Metadata:         options.Metadata,
+		Egress:           options.Egress,
 	}
 
 	room, err := c.roomClient.CreateRoom(ctx, req)
