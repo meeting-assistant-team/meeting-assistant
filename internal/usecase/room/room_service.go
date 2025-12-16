@@ -85,6 +85,14 @@ func (s *RoomService) CreateRoom(ctx context.Context, input CreateRoomInput) (*C
 	// Filepath pattern includes {track_type} and {track_id} to avoid overwriting files
 	// {track_type} = audio or video
 	// {track_id} = unique track identifier
+	
+	// Use public URL if available (for external LiveKit Cloud access)
+	// Otherwise fallback to internal endpoint for self-hosted LiveKit
+	minioEndpoint := s.storageConfig.GetS3Endpoint()
+	if s.storageConfig.PublicURL != "" {
+		minioEndpoint = s.storageConfig.PublicURL
+	}
+	
 	egressConfig := &livekit.RoomEgress{
 		Tracks: &livekit.AutoTrackEgress{
 			Filepath: "{room_name}/{publisher_identity}/{track_type}-{track_id}-{time}",
@@ -93,7 +101,7 @@ func (s *RoomService) CreateRoom(ctx context.Context, input CreateRoomInput) (*C
 					AccessKey:      s.storageConfig.AccessKeyID,
 					Secret:         s.storageConfig.SecretAccessKey,
 					Bucket:         s.storageConfig.BucketName,
-					Endpoint:       s.storageConfig.GetS3Endpoint(),
+					Endpoint:       minioEndpoint,
 					ForcePathStyle: true,
 					Region:         "us-east-1",
 				},
