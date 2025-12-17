@@ -30,21 +30,30 @@ func NewMinIOClient(cfg *config.StorageConfig) (*MinIOClient, error) {
 		return nil, fmt.Errorf("failed to create MinIO client: %w", err)
 	}
 
-	return &MinIOClient{
+	client := &MinIOClient{
 		client:    minioClient,
 		bucket:    cfg.BucketName,
 		publicURL: cfg.PublicURL,
-	}, nil
+	}
+
+	// Initialize bucket with public read policy
+	ctx := context.Background()
+	if err := client.ensureBucketWithPolicy(ctx); err != nil {
+		return nil, fmt.Errorf("failed to initialize bucket: %w", err)
+	}
+
+	return client, nil
 }
 
-// UploadFile uploads a file to MinIO
-func (m *MinIOClient) UploadFile(ctx context.Context, objectName string, reader io.Reader, size int64, contentType string) error {
-	// Check if bucket exists, create if not
+// ensureBucketWithPolicy ensures bucket exists and has public read policy
+func (m *MinIOClient) ensureBucketWithPolicy(ctx context.Context) error {
+	// Check if bucket exists
 	exists, err := m.client.BucketExists(ctx, m.bucket)
 	if err != nil {
 		return fmt.Errorf("failed to check bucket existence: %w", err)
 	}
 
+	// Create bucket if it doesn't exist
 	if !exists {
 		err = m.client.MakeBucket(ctx, m.bucket, minio.MakeBucketOptions{})
 		if err != nil {
@@ -52,8 +61,32 @@ func (m *MinIOClient) UploadFile(ctx context.Context, objectName string, reader 
 		}
 	}
 
+	// Set public read policy for the bucket
+	// This allows presigned URLs to work and enables AssemblyAI to download files
+	policy := fmt.Sprintf(`{
+		"Version": "2012-10-17",
+		"Statement": [
+			{
+				"Effect": "Allow",
+				"Principal": {"AWS": ["*"]},
+				"Action": ["s3:GetObject"],
+				"Resource": ["arn:aws:s3:::%s/*"]
+			}
+		]
+	}`, m.bucket)
+
+	err = m.client.SetBucketPolicy(ctx, m.bucket, policy)
+	if err != nil {
+		return fmt.Errorf("failed to set bucket policy: %w", err)
+	}
+
+	return nil
+}
+
+// UploadFile uploads a file to MinIO
+func (m *MinIOClient) UploadFile(ctx context.Context, objectName string, reader io.Reader, size int64, contentType string) error {
 	// Upload file
-	_, err = m.client.PutObject(ctx, m.bucket, objectName, reader, size, minio.PutObjectOptions{
+	_, err := m.client.PutObject(ctx, m.bucket, objectName, reader, size, minio.PutObjectOptions{
 		ContentType: contentType,
 	})
 	if err != nil {
