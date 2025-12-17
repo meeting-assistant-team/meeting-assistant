@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"time"
@@ -131,7 +132,11 @@ func (c *AssemblyAIClient) TranscribeAudio(ctx context.Context, recordingURL, we
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		return "", fmt.Errorf("assemblyai returned status %d", resp.StatusCode)
+		// Read response body for detailed error message
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		bodyStr := string(bodyBytes)
+
+		return "", fmt.Errorf("assemblyai returned status %d: %s", resp.StatusCode, bodyStr)
 	}
 
 	var tr TranscribeResponse
