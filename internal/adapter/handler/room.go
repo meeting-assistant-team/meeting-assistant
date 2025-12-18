@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"strconv"
+
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"go.uber.org/zap"
@@ -139,21 +141,59 @@ func (h *Room) GetRoom(c echo.Context) error {
 // @Failure      500        {object}  map[string]interface{}  "Failed to list rooms"
 // @Router       /rooms [get]
 func (h *Room) ListRooms(c echo.Context) error {
+	// Manual binding for query parameters to avoid Echo bind conflicts
 	var req room.ListRoomsRequest
-	if err := c.Bind(&req); err != nil {
-		return h.handleError(c, errors.ErrInvalidArgument("Invalid request").WithDetail("error", err.Error()))
-	}
 
-	// Set defaults
+	// Parse query params directly
+	req.Type = c.QueryParam("type")
+	req.Status = c.QueryParam("status")
+	req.Search = c.QueryParam("search")
+
+	// Parse integer params with defaults
+	page := c.QueryParam("page")
+	if page != "" {
+		if p, err := strconv.Atoi(page); err == nil {
+			req.Page = p
+		}
+	}
 	if req.Page == 0 {
 		req.Page = 1
+	}
+
+	pageSize := c.QueryParam("page_size")
+	if pageSize != "" {
+		if ps, err := strconv.Atoi(pageSize); err == nil {
+			req.PageSize = ps
+		}
 	}
 	if req.PageSize == 0 {
 		req.PageSize = 20
 	}
 
+	req.SortBy = c.QueryParam("sort_by")
+	req.SortOrder = c.QueryParam("sort_order")
+
+	// Parse tags array
+	if tags := c.QueryParams()["tags"]; len(tags) > 0 {
+		req.Tags = tags
+	}
+
+	// Debug logging
+	h.logger.Info("ListRooms request",
+		zap.String("type", req.Type),
+		zap.String("status", req.Status),
+		zap.String("search", req.Search),
+		zap.Int("page", req.Page),
+		zap.Int("page_size", req.PageSize),
+	)
+
 	// Build filters
 	filters := buildFilters(&req)
+
+	h.logger.Info("ListRooms filters",
+		zap.Any("type_filter", filters.Type),
+		zap.Any("status_filter", filters.Status),
+	)
 
 	rooms, total, err := h.roomService.ListRooms(c.Request().Context(), filters)
 	if err != nil {

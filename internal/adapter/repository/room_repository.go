@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -116,7 +117,7 @@ func (r *roomRepository) List(ctx context.Context, filters repositories.RoomFilt
 	}
 	sortOrder := "DESC"
 	if filters.SortOrder != "" {
-		sortOrder = filters.SortOrder
+		sortOrder = strings.ToUpper(filters.SortOrder)
 	}
 	query = query.Order(fmt.Sprintf("%s %s", sortBy, sortOrder))
 
