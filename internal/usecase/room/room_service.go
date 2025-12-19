@@ -81,10 +81,22 @@ func (s *RoomService) CreateRoom(ctx context.Context, input CreateRoomInput) (*C
 	// Generate LiveKit room name
 	livekitRoomName := fmt.Sprintf("room-%s", uuid.New().String())
 
-	// Create auto-recording egress config for all tracks
-	// Filepath pattern includes {track_type} and {track_id} to avoid overwriting files
-	// {track_type} = audio or video
-	// {track_id} = unique track identifier
+	// Create auto-recording egress config for audio tracks only
+	// Filepath pattern uses {track_type} to distinguish audio/video files
+	// Format: {room_name}/{publisher_identity}/{track_type}-{track_id}-{time}
+	// LiveKit will automatically:
+	//   - Audio (Opus) → .ogg files
+	//   - Video (H.264) → .mp4 files
+	//   - Video (VP8) → .webm files
+	// Note: We'll filter for audio files only in webhook handler
+
+	// Use public URL if available (for external LiveKit Cloud access)
+	// Otherwise fallback to internal endpoint for self-hosted LiveKit
+	minioEndpoint := s.storageConfig.GetS3Endpoint()
+	if s.storageConfig.PublicURL != "" {
+		minioEndpoint = s.storageConfig.PublicURL
+	}
+
 	egressConfig := &livekit.RoomEgress{
 		Tracks: &livekit.AutoTrackEgress{
 			Filepath: "{room_name}/{publisher_identity}/{track_type}-{track_id}-{time}",
@@ -93,7 +105,7 @@ func (s *RoomService) CreateRoom(ctx context.Context, input CreateRoomInput) (*C
 					AccessKey:      s.storageConfig.AccessKeyID,
 					Secret:         s.storageConfig.SecretAccessKey,
 					Bucket:         s.storageConfig.BucketName,
-					Endpoint:       s.storageConfig.GetS3Endpoint(),
+					Endpoint:       minioEndpoint,
 					ForcePathStyle: true,
 					Region:         "us-east-1",
 				},

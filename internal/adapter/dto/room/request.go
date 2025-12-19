@@ -27,8 +27,8 @@ type UpdateRoomRequest struct {
 
 // ListRoomsRequest represents query parameters for listing rooms
 type ListRoomsRequest struct {
-	Type      *string  `query:"type" validate:"omitempty,oneof=public private scheduled"`
-	Status    *string  `query:"status" validate:"omitempty,oneof=scheduled active ended cancelled"`
+	Type      string   `query:"type" validate:"omitempty,oneof=public private scheduled"`
+	Status    string   `query:"status" validate:"omitempty,oneof=scheduled active ended cancelled"`
 	Search    string   `query:"search"`
 	Tags      []string `query:"tags"`
 	Page      int      `query:"page" validate:"min=1"`

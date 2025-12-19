@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"time"
 
 	backoff "github.com/cenkalti/backoff/v4"
@@ -105,6 +106,30 @@ func (s *aiService) SubmitToAssemblyAI(ctx context.Context, meetingID uuid.UUID,
 				zap.String("recording_url", recordingURL),
 				zap.String("webhook_url", webhookURL),
 			)
+		}
+
+		// Test URL accessibility before submission
+		testReq, err := http.NewRequestWithContext(ctx, "HEAD", recordingURL, nil)
+		if err == nil {
+			testResp, err := http.DefaultClient.Do(testReq)
+			if err == nil {
+				defer testResp.Body.Close()
+				if s.logger != nil {
+					s.logger.Info("🔍 URL accessibility test",
+						zap.String("recording_url", recordingURL),
+						zap.Int("status_code", testResp.StatusCode),
+						zap.String("content_type", testResp.Header.Get("Content-Type")),
+						zap.String("content_length", testResp.Header.Get("Content-Length")),
+					)
+				}
+				if testResp.StatusCode >= 400 {
+					if s.logger != nil {
+						s.logger.Warn("⚠️ Recording URL returns error status",
+							zap.String("recording_url", recordingURL),
+							zap.Int("status_code", testResp.StatusCode))
+					}
+				}
+			}
 		}
 
 		id, err := s.asmClient.TranscribeAudio(ctx, recordingURL, webhookURL, "x-assemblyai-signature", map[string]string{

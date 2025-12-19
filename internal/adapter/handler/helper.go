@@ -122,13 +122,15 @@ func buildFilters(req *room.ListRoomsRequest) repositories.RoomFilters {
 		SortOrder: req.SortOrder,
 	}
 
-	if req.Type != nil {
-		roomType := entities.RoomType(*req.Type)
+	// Only apply type filter if not empty string
+	if req.Type != "" {
+		roomType := entities.RoomType(req.Type)
 		filters.Type = &roomType
 	}
 
-	if req.Status != nil {
-		roomStatus := entities.RoomStatus(*req.Status)
+	// Only apply status filter if not empty string
+	if req.Status != "" {
+		roomStatus := entities.RoomStatus(req.Status)
 		filters.Status = &roomStatus
 	}
 

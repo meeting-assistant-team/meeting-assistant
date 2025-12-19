@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"os"
@@ -253,6 +254,13 @@ func (h *WebhookHandler) handleEgressEndedV2(c echo.Context, event *livekit.Webh
 
 	c.Logger().Infof("🎬 Egress ended: %s (room: %s)", egressID, roomName)
 
+	// Log egress info for debugging
+	h.logger.Info("📊 Egress details",
+		zap.String("egress_id", egressID),
+		zap.String("room_name", roomName),
+		zap.String("status", event.EgressInfo.Status.String()),
+		zap.Int("file_results_count", len(event.EgressInfo.FileResults)))
+
 	// Get context early for MinIO operations
 	ctx := c.Request().Context()
 
@@ -264,18 +272,50 @@ func (h *WebhookHandler) handleEgressEndedV2(c echo.Context, event *livekit.Webh
 
 	if len(event.EgressInfo.FileResults) > 0 {
 		// Find the audio file from the results
-		// Audio files typically have extensions: .ogg, .mp3, .wav, .m4a
+		// Audio files from LiveKit Track Egress (Opus codec) → .ogg extension
+		// Video files: .mp4 (H.264) or .webm (VP8)
+		// We need to filter by both filename pattern AND extension
 		var audioFilename string
-		for _, fileResult := range event.EgressInfo.FileResults {
+
+		// Log all file results for debugging
+		for i, fileResult := range event.EgressInfo.FileResults {
+			h.logger.Info("📁 File result details",
+				zap.Int("index", i),
+				zap.String("filename", fileResult.Filename),
+				zap.Int64("size", fileResult.Size),
+				zap.String("location", fileResult.Location),
+				zap.Int64("duration_ms", fileResult.Duration))
+
 			fname := fileResult.Filename
-			// Check if it's an audio file
-			if strings.HasSuffix(strings.ToLower(fname), ".ogg") ||
-				strings.HasSuffix(strings.ToLower(fname), ".mp3") ||
-				strings.HasSuffix(strings.ToLower(fname), ".wav") ||
-				strings.HasSuffix(strings.ToLower(fname), ".m4a") ||
-				strings.Contains(strings.ToLower(fname), "audio-") {
+			fnameLower := strings.ToLower(fname)
+
+			// Filter for audio files:
+			// 1. Must have audio file extension (.ogg, .mp3, .wav, .m4a)
+			// 2. Must contain "audio" in filename (from {track_type} template)
+			// 3. Must NOT be video file (.mp4, .webm, .avi, .mov)
+			isAudioExtension := strings.HasSuffix(fnameLower, ".ogg") ||
+				strings.HasSuffix(fnameLower, ".mp3") ||
+				strings.HasSuffix(fnameLower, ".wav") ||
+				strings.HasSuffix(fnameLower, ".m4a")
+
+			isVideoExtension := strings.HasSuffix(fnameLower, ".mp4") ||
+				strings.HasSuffix(fnameLower, ".webm") ||
+				strings.HasSuffix(fnameLower, ".avi") ||
+				strings.HasSuffix(fnameLower, ".mov")
+
+			hasAudioInName := strings.Contains(fnameLower, "audio")
+
+			// Select file if it's audio and not video
+			if isAudioExtension && hasAudioInName && !isVideoExtension {
 				audioFilename = fname
+				h.logger.Info("✅ Selected audio file",
+					zap.String("filename", fname),
+					zap.Bool("is_audio_ext", isAudioExtension),
+					zap.Bool("has_audio_name", hasAudioInName))
 				break
+			} else if isVideoExtension {
+				h.logger.Info("⏭️  Skipping video file",
+					zap.String("filename", fname))
 			}
 		}
 
@@ -366,16 +406,20 @@ func (h *WebhookHandler) handleEgressEndedV2(c echo.Context, event *livekit.Webh
 			zap.String("recording_id", recording.ID.String()))
 	}
 
-	// Submit to AssemblyAI for transcription
-	if err := h.aiService.SubmitToAssemblyAI(ctx, roomEntity.ID, recordingURL); err != nil {
-		h.logger.Error("❌ failed to submit to AssemblyAI",
-			zap.String("room_id", roomEntity.ID.String()),
-			zap.String("recording_url", recordingURL),
-			zap.Error(err))
-	} else {
-		h.logger.Info("✅ Successfully submitted to AssemblyAI",
-			zap.String("room_id", roomEntity.ID.String()))
-	}
+	// Submit to AssemblyAI for transcription in background
+	// Use context.Background() to avoid cancellation when webhook request ends
+	go func() {
+		bgCtx := context.Background()
+		if err := h.aiService.SubmitToAssemblyAI(bgCtx, roomEntity.ID, recordingURL); err != nil {
+			h.logger.Error("❌ failed to submit to AssemblyAI",
+				zap.String("room_id", roomEntity.ID.String()),
+				zap.String("recording_url", recordingURL),
+				zap.Error(err))
+		} else {
+			h.logger.Info("✅ Successfully submitted to AssemblyAI",
+				zap.String("room_id", roomEntity.ID.String()))
+		}
+	}()
 
 	return HandleSuccess(h.logger, c, map[string]interface{}{"status": "ok", "event": "egress_ended"})
 }
