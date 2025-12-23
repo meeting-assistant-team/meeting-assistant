@@ -566,3 +566,191 @@ func (h *Room) RemoveParticipant(c echo.Context) error {
 
 	return h.handleSuccess(c, map[string]interface{}{"message": "participant removed successfully"})
 }
+
+// InviteByEmail invites a user to join a room by email
+// @Summary      Invite user by email
+// @Description  Allows the host to invite a user to join the room by providing their email
+// @Tags         Invitations
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id       path      string                      true  "Room ID (UUID)"
+// @Param        request  body      room.InviteByEmailRequest   true  "Email of user to invite"
+// @Success      200      {object}  room.InviteByEmailResponse  "Invitation sent successfully"
+// @Failure      400      {object}  map[string]interface{}      "Invalid request"
+// @Failure      401      {object}  map[string]interface{}      "User not authenticated"
+// @Failure      403      {object}  map[string]interface{}      "User is not the host"
+// @Failure      409      {object}  map[string]interface{}      "User already invited"
+// @Failure      500      {object}  map[string]interface{}      "Failed to send invitation"
+// @Router       /rooms/{id}/invitations [post]
+func (h *Room) InviteByEmail(c echo.Context) error {
+	roomID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		return h.handleError(c, errors.ErrInvalidArgument("Invalid room ID").WithDetail("error", "Room ID must be a valid UUID"))
+	}
+
+	userID, ok := c.Get("user_id").(uuid.UUID)
+	if !ok {
+		return h.handleError(c, errors.ErrUnauthenticated().WithDetail("error", "User not authenticated"))
+	}
+
+	var req room.InviteByEmailRequest
+	if err := c.Bind(&req); err != nil {
+		return h.handleError(c, errors.ErrInvalidArgument("Invalid request body").WithDetail("error", err.Error()))
+	}
+
+	if err := c.Validate(&req); err != nil {
+		return h.handleError(c, errors.ErrInvalidArgument("Validation failed").WithDetail("error", err.Error()))
+	}
+
+	participant, err := h.roomService.InviteUserByEmail(c.Request().Context(), roomID, userID, req.Email)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return h.handleSuccess(c, &room.InviteByEmailResponse{
+		ParticipantID: participant.ID.String(),
+		Email:         req.Email,
+		Status:        string(participant.Status),
+		Message:       "Invitation sent successfully. The user will see this invitation when they log in.",
+	})
+}
+
+// GetMyInvitations retrieves all room invitations for the current user
+// @Summary      Get my invitations
+// @Description  Retrieves all room invitations sent to the current user's email
+// @Tags         Invitations
+// @Produce      json
+// @Security     BearerAuth
+// @Success      200  {object}  room.MyInvitationsResponse  "List of invitations"
+// @Failure      401  {object}  map[string]interface{}      "User not authenticated"
+// @Failure      500  {object}  map[string]interface{}      "Failed to get invitations"
+// @Router       /invitations/me [get]
+func (h *Room) GetMyInvitations(c echo.Context) error {
+	// Get user email from context (set by auth middleware)
+	userEmail, ok := c.Get("user_email").(string)
+	if !ok || userEmail == "" {
+		return h.handleError(c, errors.ErrUnauthenticated().WithDetail("error", "User email not found"))
+	}
+
+	invitations, err := h.roomService.GetInvitationsByEmail(c.Request().Context(), userEmail)
+	if err != nil {
+		return h.handleError(c, errors.ErrInternal(err))
+	}
+
+	return h.handleSuccess(c, presenter.ToMyInvitationsResponse(invitations))
+}
+
+// AcceptInvitationToRoom accepts an invitation and joins the room
+// @Summary      Accept invitation
+// @Description  Accepts an invitation to join a room
+// @Tags         Invitations
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id   path      string                           true  "Room ID (UUID)"
+// @Success      200  {object}  room.AcceptInvitationResponse    "Successfully joined room"
+// @Failure      400  {object}  map[string]interface{}           "Invalid room ID"
+// @Failure      401  {object}  map[string]interface{}           "User not authenticated"
+// @Failure      404  {object}  map[string]interface{}           "Invitation not found"
+// @Failure      500  {object}  map[string]interface{}           "Failed to accept invitation"
+// @Router       /rooms/{id}/invitations/accept [post]
+func (h *Room) AcceptInvitationToRoom(c echo.Context) error {
+	roomID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		return h.handleError(c, errors.ErrInvalidArgument("Invalid room ID").WithDetail("error", "Room ID must be a valid UUID"))
+	}
+
+	userID, ok := c.Get("user_id").(uuid.UUID)
+	if !ok {
+		return h.handleError(c, errors.ErrUnauthenticated().WithDetail("error", "User not authenticated"))
+	}
+
+	userEmail, ok := c.Get("user_email").(string)
+	if !ok || userEmail == "" {
+		return h.handleError(c, errors.ErrUnauthenticated().WithDetail("error", "User email not found"))
+	}
+
+	r, participant, token, err := h.roomService.AcceptInvitationByEmail(c.Request().Context(), roomID, userEmail, userID)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return h.handleSuccess(c, &room.AcceptInvitationResponse{
+		Status:       "joined",
+		Message:      "Successfully accepted invitation and joined the room",
+		Room:         presenter.ToRoomResponse(r),
+		Participant:  presenter.ToParticipantResponse(participant),
+		LivekitToken: token,
+		LivekitURL:   h.roomService.GetLivekitURL(),
+	})
+}
+
+// DeclineInvitation declines an invitation to join a room
+// @Summary      Decline invitation
+// @Description  Declines an invitation to join a room
+// @Tags         Invitations
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id   path      string                      true  "Room ID (UUID)"
+// @Success      200  {object}  map[string]interface{}      "Invitation declined"
+// @Failure      400  {object}  map[string]interface{}      "Invalid room ID"
+// @Failure      401  {object}  map[string]interface{}      "User not authenticated"
+// @Failure      404  {object}  map[string]interface{}      "Invitation not found"
+// @Failure      500  {object}  map[string]interface{}      "Failed to decline invitation"
+// @Router       /rooms/{id}/invitations/decline [post]
+func (h *Room) DeclineInvitation(c echo.Context) error {
+	roomID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		return h.handleError(c, errors.ErrInvalidArgument("Invalid room ID").WithDetail("error", "Room ID must be a valid UUID"))
+	}
+
+	userID, ok := c.Get("user_id").(uuid.UUID)
+	if !ok {
+		return h.handleError(c, errors.ErrUnauthenticated().WithDetail("error", "User not authenticated"))
+	}
+
+	userEmail, ok := c.Get("user_email").(string)
+	if !ok || userEmail == "" {
+		return h.handleError(c, errors.ErrUnauthenticated().WithDetail("error", "User email not found"))
+	}
+
+	if err := h.roomService.DeclineInvitationByEmail(c.Request().Context(), roomID, userEmail, userID); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return h.handleSuccess(c, map[string]interface{}{
+		"message": "Invitation declined successfully",
+	})
+}
+
+// GetRoomInvitations retrieves all invitations for a room (host only)
+// @Summary      Get room invitations
+// @Description  Retrieves all invitations for a room (host only)
+// @Tags         Invitations
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id   path      string                         true  "Room ID (UUID)"
+// @Success      200  {object}  room.ParticipantListResponse   "List of invitations"
+// @Failure      400  {object}  map[string]interface{}         "Invalid room ID"
+// @Failure      401  {object}  map[string]interface{}         "User not authenticated"
+// @Failure      403  {object}  map[string]interface{}         "User is not the host"
+// @Failure      500  {object}  map[string]interface{}         "Failed to get invitations"
+// @Router       /rooms/{id}/invitations [get]
+func (h *Room) GetRoomInvitations(c echo.Context) error {
+	roomID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		return h.handleError(c, errors.ErrInvalidArgument("Invalid room ID").WithDetail("error", "Room ID must be a valid UUID"))
+	}
+
+	userID, ok := c.Get("user_id").(uuid.UUID)
+	if !ok {
+		return h.handleError(c, errors.ErrUnauthenticated().WithDetail("error", "User not authenticated"))
+	}
+
+	invitations, err := h.roomService.GetRoomInvitations(c.Request().Context(), roomID, userID)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return h.handleSuccess(c, presenter.ToParticipantListResponse(invitations))
+}

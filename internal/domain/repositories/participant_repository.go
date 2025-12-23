@@ -65,4 +65,14 @@ type ParticipantRepository interface {
 
 	// FindWaitingByRoomID retrieves all waiting participants in a room
 	FindWaitingByRoomID(ctx context.Context, roomID uuid.UUID) ([]*entities.Participant, error)
+
+	// Invitation methods
+	// FindByInvitedEmail retrieves participants invited with a specific email
+	FindByInvitedEmail(ctx context.Context, email string) ([]*entities.Participant, error)
+
+	// FindInvitedByRoomID retrieves all invited participants in a room
+	FindInvitedByRoomID(ctx context.Context, roomID uuid.UUID) ([]*entities.Participant, error)
+
+	// FindByRoomAndEmail retrieves a participant by room and invited email
+	FindByRoomAndEmail(ctx context.Context, roomID uuid.UUID, email string) (*entities.Participant, error)
 }

@@ -78,9 +78,10 @@ func ToParticipantResponse(p *entities.Participant) *room.ParticipantResponse {
 	response := &room.ParticipantResponse{
 		ID:                p.ID.String(),
 		RoomID:            p.RoomID.String(),
-		UserID:            p.UserID.String(),
 		Role:              string(p.Role),
 		Status:            string(p.Status),
+		InvitedEmail:      p.InvitedEmail,
+		InvitedAt:         p.InvitedAt,
 		JoinedAt:          p.JoinedAt,
 		LeftAt:            p.LeftAt,
 		Duration:          p.Duration,
@@ -91,6 +92,18 @@ func ToParticipantResponse(p *entities.Participant) *room.ParticipantResponse {
 		IsHandRaised:      p.IsHandRaised,
 		ConnectionQuality: p.ConnectionQuality,
 		CreatedAt:         p.CreatedAt,
+	}
+
+	// UserID might be nil for invited participants
+	if p.UserID != nil {
+		userIDStr := p.UserID.String()
+		response.UserID = userIDStr
+	}
+
+	// InvitedBy might be nil
+	if p.InvitedBy != nil {
+		invitedByStr := p.InvitedBy.String()
+		response.InvitedBy = &invitedByStr
 	}
 
 	// Include user if loaded
@@ -111,5 +124,41 @@ func ToParticipantListResponse(participants []*entities.Participant) *room.Parti
 	return &room.ParticipantListResponse{
 		Participants: participantResponses,
 		Total:        len(participants),
+	}
+}
+
+// ToMyInvitationsResponse converts participant invitations to MyInvitationsResponse
+func ToMyInvitationsResponse(participants []*entities.Participant) *room.MyInvitationsResponse {
+	invitations := make([]room.InvitationItem, 0, len(participants))
+
+	for _, p := range participants {
+		if p.Room == nil {
+			continue
+		}
+
+		item := room.InvitationItem{
+			ParticipantID: p.ID.String(),
+			RoomID:        p.RoomID.String(),
+			RoomName:      p.Room.Name,
+			RoomType:      string(p.Room.Type),
+			InvitedAt:     *p.InvitedAt,
+		}
+
+		// Add inviter info if available
+		if p.InvitedBy != nil {
+			item.InviterID = p.InvitedBy.String()
+		}
+
+		// Get inviter name from User relation if loaded
+		if p.User != nil {
+			item.InviterName = p.User.Name
+		}
+
+		invitations = append(invitations, item)
+	}
+
+	return &room.MyInvitationsResponse{
+		Invitations: invitations,
+		Total:       len(invitations),
 	}
 }

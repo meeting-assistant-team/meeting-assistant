@@ -240,3 +240,40 @@ func (r *participantRepository) FindWaitingByRoomID(ctx context.Context, roomID 
 		Find(&participants).Error
 	return participants, err
 }
+
+// FindByInvitedEmail retrieves participants invited with a specific email
+func (r *participantRepository) FindByInvitedEmail(ctx context.Context, email string) ([]*entities.Participant, error) {
+	var participants []*entities.Participant
+	err := r.db.WithContext(ctx).
+		Preload("Room").
+		Preload("User"). // Invited by user
+		Where("invited_email = ? AND status = ?", email, entities.ParticipantStatusInvited).
+		Order("invited_at DESC").
+		Find(&participants).Error
+	return participants, err
+}
+
+// FindInvitedByRoomID retrieves all invited participants in a room
+func (r *participantRepository) FindInvitedByRoomID(ctx context.Context, roomID uuid.UUID) ([]*entities.Participant, error) {
+	var participants []*entities.Participant
+	err := r.db.WithContext(ctx).
+		Preload("User").
+		Where("room_id = ? AND status = ?", roomID, entities.ParticipantStatusInvited).
+		Order("invited_at DESC").
+		Find(&participants).Error
+	return participants, err
+}
+
+// FindByRoomAndEmail retrieves a participant by room and invited email
+func (r *participantRepository) FindByRoomAndEmail(ctx context.Context, roomID uuid.UUID, email string) (*entities.Participant, error) {
+	var participant entities.Participant
+	err := r.db.WithContext(ctx).
+		Preload("Room").
+		Where("room_id = ? AND invited_email = ? AND status = ?", roomID, email, entities.ParticipantStatusInvited).
+		First(&participant).Error
+
+	if err != nil {
+		return nil, err
+	}
+	return &participant, nil
+}

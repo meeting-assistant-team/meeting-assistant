@@ -40,10 +40,13 @@ type CreateRoomResponse struct {
 type ParticipantResponse struct {
 	ID                string             `json:"id"`
 	RoomID            string             `json:"room_id"`
-	UserID            string             `json:"user_id"`
+	UserID            string             `json:"user_id,omitempty"`
 	User              *auth.UserResponse `json:"user,omitempty"`
 	Role              string             `json:"role"`
 	Status            string             `json:"status"`
+	InvitedEmail      *string            `json:"invited_email,omitempty"` // For invited participants
+	InvitedBy         *string            `json:"invited_by,omitempty"`    // User ID who invited
+	InvitedAt         *time.Time         `json:"invited_at,omitempty"`
 	JoinedAt          *time.Time         `json:"joined_at,omitempty"`
 	LeftAt            *time.Time         `json:"left_at,omitempty"`
 	Duration          *int               `json:"duration,omitempty"`
