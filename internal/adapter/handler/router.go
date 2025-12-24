@@ -47,13 +47,16 @@ func (rt *Router) Setup(e *echo.Echo) {
 	// Swagger documentation
 	e.GET("/swagger/*", echoSwagger.WrapHandler)
 
+	// Webhook routes (NO AUTH - external services call these)
+	rt.setupWebhookRoutes(e)
+
 	// API v1 group
 	v1 := e.Group("/v1")
 
 	// Setup route groups
 	rt.setupAuthRoutes(v1)
 	rt.setupRoomRoutes(v1)
-	rt.setupWebhookRoutes(v1)
+	rt.setupInvitationRoutes(v1) // Add invitation routes
 	rt.setupTestRoutes(v1)
 	// AI endpoints
 	if rt.aiController != nil {
@@ -131,6 +134,12 @@ func (rt *Router) setupRoomRoutes(g *echo.Group) {
 		roomGroup.POST("/:id/participants/:pid/deny", rt.roomHandler.DenyParticipant)     // Deny participant
 		roomGroup.DELETE("/:id/participants/:pid", rt.roomHandler.RemoveParticipant)      // Remove participant
 		roomGroup.PATCH("/:id/host", rt.roomHandler.TransferHost)                         // Transfer host
+
+		// Invitation routes
+		roomGroup.POST("/:id/invitations", rt.roomHandler.InviteByEmail)                 // Invite user by email
+		roomGroup.GET("/:id/invitations", rt.roomHandler.GetRoomInvitations)             // Get room invitations (host only)
+		roomGroup.POST("/:id/invitations/accept", rt.roomHandler.AcceptInvitationToRoom) // Accept invitation
+		roomGroup.POST("/:id/invitations/decline", rt.roomHandler.DeclineInvitation)     // Decline invitation
 	} else {
 		// Placeholder routes when handler is not initialized
 		roomGroup.POST("", rt.notImplemented)
@@ -145,9 +154,24 @@ func (rt *Router) setupRoomRoutes(g *echo.Group) {
 	}
 }
 
-// setupWebhookRoutes configures webhook routes (no auth required for LiveKit webhooks)
-func (rt *Router) setupWebhookRoutes(g *echo.Group) {
-	webhookGroup := g.Group("/webhooks")
+// setupInvitationRoutes configures invitation routes
+func (rt *Router) setupInvitationRoutes(g *echo.Group) {
+	// Protect with auth middleware
+	if rt.authMW != nil {
+		g.Use(rt.authMW)
+	}
+
+	if rt.roomHandler != nil {
+		// User's invitations
+		g.GET("/invitations/me", rt.roomHandler.GetMyInvitations) // Get my invitations
+	} else {
+		g.GET("/invitations/me", rt.notImplemented)
+	}
+}
+
+// setupWebhookRoutes configures webhook routes (no auth required for external webhooks)
+func (rt *Router) setupWebhookRoutes(e *echo.Echo) {
+	webhookGroup := e.Group("/webhooks")
 
 	if rt.webhookHandler != nil {
 		// LiveKit webhook endpoint (public - LiveKit will call this)

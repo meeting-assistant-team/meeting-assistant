@@ -81,14 +81,10 @@ func (s *RoomService) CreateRoom(ctx context.Context, input CreateRoomInput) (*C
 	// Generate LiveKit room name
 	livekitRoomName := fmt.Sprintf("room-%s", uuid.New().String())
 
-	// Create auto-recording egress config for audio tracks only
-	// Filepath pattern uses {track_type} to distinguish audio/video files
-	// Format: {room_name}/{publisher_identity}/{track_type}-{track_id}-{time}
-	// LiveKit will automatically:
-	//   - Audio (Opus) → .ogg files
-	//   - Video (H.264) → .mp4 files
-	//   - Video (VP8) → .webm files
-	// Note: We'll filter for audio files only in webhook handler
+	// Create room composite egress for audio-only recording
+	// Using RoomComposite with audio-only preset to get AAC audio in MP4 container
+	// This produces audio-only MP4 files that AssemblyAI can process
+	// Output format: {room_name}/audio-{time}.mp4 (AAC codec, no video track)
 
 	// Use public URL if available (for external LiveKit Cloud access)
 	// Otherwise fallback to internal endpoint for self-hosted LiveKit
@@ -98,16 +94,23 @@ func (s *RoomService) CreateRoom(ctx context.Context, input CreateRoomInput) (*C
 	}
 
 	egressConfig := &livekit.RoomEgress{
-		Tracks: &livekit.AutoTrackEgress{
-			Filepath: "{room_name}/{publisher_identity}/{track_type}-{track_id}-{time}",
-			Output: &livekit.AutoTrackEgress_S3{
-				S3: &livekit.S3Upload{
-					AccessKey:      s.storageConfig.AccessKeyID,
-					Secret:         s.storageConfig.SecretAccessKey,
-					Bucket:         s.storageConfig.BucketName,
-					Endpoint:       minioEndpoint,
-					ForcePathStyle: true,
-					Region:         "us-east-1",
+		Room: &livekit.RoomCompositeEgressRequest{
+			RoomName:  livekitRoomName,
+			AudioOnly: true, // Audio-only, no video
+			FileOutputs: []*livekit.EncodedFileOutput{
+				{
+					FileType: livekit.EncodedFileType_MP4,
+					Filepath: "{room_name}/audio-{time}.mp4",
+					Output: &livekit.EncodedFileOutput_S3{
+						S3: &livekit.S3Upload{
+							AccessKey:      s.storageConfig.AccessKeyID,
+							Secret:         s.storageConfig.SecretAccessKey,
+							Bucket:         s.storageConfig.BucketName,
+							Endpoint:       minioEndpoint,
+							ForcePathStyle: true,
+							Region:         "us-east-1",
+						},
+					},
 				},
 			},
 		},
@@ -159,7 +162,7 @@ func (s *RoomService) CreateRoom(ctx context.Context, input CreateRoomInput) (*C
 	now := time.Now()
 	participant := &entities.Participant{
 		RoomID:         room.ID,
-		UserID:         input.HostID,
+		UserID:         &input.HostID,
 		Role:           entities.ParticipantRoleHost,
 		Status:         entities.ParticipantStatusInvited,
 		InvitedAt:      &now,
@@ -308,7 +311,7 @@ func (s *RoomService) JoinRoom(ctx context.Context, input JoinRoomInput) (*entit
 		}
 		participant = &entities.Participant{
 			RoomID:         input.RoomID,
-			UserID:         input.UserID,
+			UserID:         &input.UserID,
 			Role:           participantRole,
 			Status:         participantStatus,
 			CanShareScreen: true,
@@ -771,7 +774,7 @@ func (s *RoomService) promoteNewHost(ctx context.Context, roomID uuid.UUID) erro
 		return fmt.Errorf("failed to get room: %w", err)
 	}
 
-	room.HostID = newHost.UserID
+	room.HostID = *newHost.UserID
 	if err := s.roomRepo.Update(ctx, room); err != nil {
 		return fmt.Errorf("failed to update room: %w", err)
 	}
@@ -859,4 +862,157 @@ func (s *RoomService) UpdateParticipantStatus(ctx context.Context, roomID, userI
 // GetParticipantByRoomAndUser retrieves a participant by room and user ID
 func (s *RoomService) GetParticipantByRoomAndUser(ctx context.Context, roomID, userID uuid.UUID) (*entities.Participant, error) {
 	return s.participantRepo.FindByRoomAndUser(ctx, roomID, userID)
+}
+
+// InviteUserByEmail invites a user to join a room by email
+func (s *RoomService) InviteUserByEmail(ctx context.Context, roomID, inviterID uuid.UUID, email string) (*entities.Participant, error) {
+	// Verify room exists
+	room, err := s.roomRepo.FindByID(ctx, roomID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, usecaseErrors.ErrRoomNotFound
+		}
+		return nil, fmt.Errorf("failed to get room: %w", err)
+	}
+
+	// Verify inviter is host
+	inviter, err := s.participantRepo.FindByRoomAndUser(ctx, roomID, inviterID)
+	if err != nil {
+		return nil, usecaseErrors.ErrNotParticipant
+	}
+	if !inviter.IsHost() {
+		return nil, usecaseErrors.ErrNotHost
+	}
+
+	// Check if already invited with this email
+	existing, err := s.participantRepo.FindByRoomAndEmail(ctx, roomID, email)
+	if err == nil && existing != nil {
+		return nil, usecaseErrors.ErrAlreadyInvited
+	}
+
+	// Create invitation participant record
+	now := time.Now()
+	participant := &entities.Participant{
+		RoomID:       roomID,
+		UserID:       nil, // Not assigned yet
+		Role:         entities.ParticipantRoleParticipant,
+		Status:       entities.ParticipantStatusInvited,
+		InvitedEmail: &email,
+		InvitedBy:    &inviterID,
+		InvitedAt:    &now,
+	}
+
+	if err := s.participantRepo.Create(ctx, participant); err != nil {
+		return nil, fmt.Errorf("failed to create invitation: %w", err)
+	}
+
+	log.Printf("[Invitation] User invited to room: email=%s, room=%s, inviter=%s", email, room.Name, inviterID)
+
+	return participant, nil
+}
+
+// GetInvitationsByEmail retrieves all invitations for a given email
+func (s *RoomService) GetInvitationsByEmail(ctx context.Context, email string) ([]*entities.Participant, error) {
+	participants, err := s.participantRepo.FindByInvitedEmail(ctx, email)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get invitations: %w", err)
+	}
+	return participants, nil
+}
+
+// AcceptInvitationByEmail accepts an invitation and joins the room
+func (s *RoomService) AcceptInvitationByEmail(ctx context.Context, roomID uuid.UUID, email string, userID uuid.UUID) (*entities.Room, *entities.Participant, string, error) {
+	// Find invitation
+	participant, err := s.participantRepo.FindByRoomAndEmail(ctx, roomID, email)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil, "", usecaseErrors.ErrInvitationNotFound
+		}
+		return nil, nil, "", fmt.Errorf("failed to find invitation: %w", err)
+	}
+
+	// Verify room exists and is not ended
+	room, err := s.roomRepo.FindByID(ctx, roomID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil, "", usecaseErrors.ErrRoomNotFound
+		}
+		return nil, nil, "", fmt.Errorf("failed to get room: %w", err)
+	}
+
+	if room.Status == entities.RoomStatusEnded || room.Status == entities.RoomStatusCancelled {
+		return nil, nil, "", usecaseErrors.ErrRoomEnded
+	}
+
+	// Update participant record with user ID and join
+	participant.UserID = &userID
+	participant.Status = entities.ParticipantStatusJoined
+	now := time.Now()
+	participant.JoinedAt = &now
+
+	if err := s.participantRepo.Update(ctx, participant); err != nil {
+		return nil, nil, "", fmt.Errorf("failed to update participant: %w", err)
+	}
+
+	// Update room participant count
+	if room.Status == entities.RoomStatusActive {
+		room.CurrentParticipants++
+		if err := s.roomRepo.Update(ctx, room); err != nil {
+			return nil, nil, "", fmt.Errorf("failed to update room: %w", err)
+		}
+	}
+
+	// Generate LiveKit token
+	token, err := s.GenerateParticipantToken(ctx, room, participant)
+	if err != nil {
+		return nil, nil, "", fmt.Errorf("failed to generate token: %w", err)
+	}
+
+	log.Printf("[Invitation] User accepted invitation: email=%s, room=%s, user=%s", email, room.Name, userID)
+
+	return room, participant, token, nil
+}
+
+// DeclineInvitationByEmail declines an invitation
+func (s *RoomService) DeclineInvitationByEmail(ctx context.Context, roomID uuid.UUID, email string, userID uuid.UUID) error {
+	// Find invitation
+	participant, err := s.participantRepo.FindByRoomAndEmail(ctx, roomID, email)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return usecaseErrors.ErrInvitationNotFound
+		}
+		return fmt.Errorf("failed to find invitation: %w", err)
+	}
+
+	// Update status to declined
+	participant.Status = entities.ParticipantStatusDeclined
+	participant.UserID = &userID // Link to user who declined
+
+	if err := s.participantRepo.Update(ctx, participant); err != nil {
+		return fmt.Errorf("failed to update participant: %w", err)
+	}
+
+	log.Printf("[Invitation] User declined invitation: email=%s, room_id=%s, user=%s", email, roomID, userID)
+
+	return nil
+}
+
+// GetRoomInvitations retrieves all invitations for a room (host only)
+func (s *RoomService) GetRoomInvitations(ctx context.Context, roomID, hostID uuid.UUID) ([]*entities.Participant, error) {
+	// Verify host permission
+	host, err := s.participantRepo.FindByRoomAndUser(ctx, roomID, hostID)
+	if err != nil {
+		return nil, usecaseErrors.ErrNotParticipant
+	}
+	if !host.IsHost() {
+		return nil, usecaseErrors.ErrNotHost
+	}
+
+	// Get all invitations for the room
+	invitations, err := s.participantRepo.FindInvitedByRoomID(ctx, roomID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get invitations: %w", err)
+	}
+
+	return invitations, nil
 }

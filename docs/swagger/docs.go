@@ -263,7 +263,7 @@ const docTemplate = `{
         },
         "/auth/refresh": {
             "post": {
-                "description": "Gets a new access token using session_id from HttpOnly cookie. No request body needed.",
+                "description": "Gets a new access token using session_id from HttpOnly cookie or header. No request body needed.",
                 "produces": [
                     "application/json"
                 ],
@@ -271,6 +271,14 @@ const docTemplate = `{
                     "Authentication"
                 ],
                 "summary": "Refresh access token",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID (alternative to cookie)",
+                        "name": "session_id",
+                        "in": "header"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "Token refreshed successfully with access_token and expires_in",
@@ -280,7 +288,7 @@ const docTemplate = `{
                         }
                     },
                     "400": {
-                        "description": "Invalid or missing session_id cookie",
+                        "description": "Invalid or missing session_id",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -327,6 +335,45 @@ const docTemplate = `{
                 "responses": {
                     "200": {
                         "description": "access_token, expires_in",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/invitations/me": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Retrieves all room invitations sent to the current user's email",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Invitations"
+                ],
+                "summary": "Get my invitations",
+                "responses": {
+                    "200": {
+                        "description": "List of invitations",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.MyInvitationsResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "User not authenticated",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Failed to get invitations",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -658,6 +705,272 @@ const docTemplate = `{
                     },
                     "500": {
                         "description": "Failed to transfer host",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/rooms/{id}/invitations": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Retrieves all invitations for a room (host only)",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Invitations"
+                ],
+                "summary": "Get room invitations",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Room ID (UUID)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "List of invitations",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.ParticipantListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid room ID",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "User not authenticated",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "User is not the host",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Failed to get invitations",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Allows the host to invite a user to join the room by providing their email",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Invitations"
+                ],
+                "summary": "Invite user by email",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Room ID (UUID)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Email of user to invite",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.InviteByEmailRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Invitation sent successfully",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.InviteByEmailResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "User not authenticated",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "User is not the host",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "409": {
+                        "description": "User already invited",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Failed to send invitation",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/rooms/{id}/invitations/accept": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Accepts an invitation to join a room",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Invitations"
+                ],
+                "summary": "Accept invitation",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Room ID (UUID)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successfully joined room",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.AcceptInvitationResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid room ID",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "User not authenticated",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Invitation not found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Failed to accept invitation",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/rooms/{id}/invitations/decline": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Declines an invitation to join a room",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Invitations"
+                ],
+                "summary": "Decline invitation",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Room ID (UUID)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Invitation declined",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid room ID",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "User not authenticated",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Invitation not found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Failed to decline invitation",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -1116,6 +1429,142 @@ const docTemplate = `{
                 }
             }
         },
+        "/test/storage/download-url": {
+            "get": {
+                "description": "Generate a presigned URL for downloading a file from MinIO",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Storage Test"
+                ],
+                "summary": "Generate download URL",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "File path/name in bucket",
+                        "name": "file",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Download URL",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Missing file parameter",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Failed to generate URL",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/test/storage/files": {
+            "get": {
+                "description": "List all files in the MinIO bucket with optional prefix filter",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Storage Test"
+                ],
+                "summary": "List files in MinIO bucket",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "File prefix filter",
+                        "name": "prefix",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "File list",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Failed to list files",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/test/storage/info": {
+            "get": {
+                "description": "Get information about the MinIO bucket and connection status",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Storage Test"
+                ],
+                "summary": "Test MinIO bucket info",
+                "responses": {
+                    "200": {
+                        "description": "Bucket info",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Failed to get bucket info",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/test/storage/upload": {
+            "post": {
+                "description": "Test uploading a text file to MinIO to verify connection and credentials",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Storage Test"
+                ],
+                "summary": "Test MinIO upload",
+                "responses": {
+                    "200": {
+                        "description": "Upload successful",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Upload failed",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/webhooks/assemblyai": {
             "post": {
                 "description": "Receives webhook events from AssemblyAI when transcription completes",
@@ -1235,6 +1684,29 @@ const docTemplate = `{
                 }
             }
         },
+        "github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.AcceptInvitationResponse": {
+            "type": "object",
+            "properties": {
+                "livekit_token": {
+                    "type": "string"
+                },
+                "livekit_url": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "participant": {
+                    "$ref": "#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.ParticipantResponse"
+                },
+                "room": {
+                    "$ref": "#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.RoomResponse"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
         "github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.CreateRoomRequest": {
             "type": "object",
             "required": [
@@ -1276,6 +1748,60 @@ const docTemplate = `{
                 }
             }
         },
+        "github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.InvitationItem": {
+            "type": "object",
+            "properties": {
+                "invited_at": {
+                    "type": "string"
+                },
+                "inviter_id": {
+                    "type": "string"
+                },
+                "inviter_name": {
+                    "type": "string"
+                },
+                "participant_id": {
+                    "type": "string"
+                },
+                "room_id": {
+                    "type": "string"
+                },
+                "room_name": {
+                    "type": "string"
+                },
+                "room_type": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.InviteByEmailRequest": {
+            "type": "object",
+            "required": [
+                "email"
+            ],
+            "properties": {
+                "email": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.InviteByEmailResponse": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "participant_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
         "github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.JoinRoomResponse": {
             "type": "object",
             "properties": {
@@ -1310,6 +1836,20 @@ const docTemplate = `{
                 "status": {
                     "description": "\"joined\" or \"waiting\"",
                     "type": "string"
+                }
+            }
+        },
+        "github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.MyInvitationsResponse": {
+            "type": "object",
+            "properties": {
+                "invitations": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.InvitationItem"
+                    }
+                },
+                "total": {
+                    "type": "integer"
                 }
             }
         },
@@ -1349,6 +1889,17 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "id": {
+                    "type": "string"
+                },
+                "invited_at": {
+                    "type": "string"
+                },
+                "invited_by": {
+                    "description": "User ID who invited",
+                    "type": "string"
+                },
+                "invited_email": {
+                    "description": "For invited participants",
                     "type": "string"
                 },
                 "is_hand_raised": {

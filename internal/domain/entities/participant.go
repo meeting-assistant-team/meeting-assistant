@@ -32,30 +32,34 @@ const (
 
 // Participant represents a user's participation in a room
 type Participant struct {
-	ID                uuid.UUID         `gorm:"type:uuid;primary_key;default:gen_random_uuid()" json:"id"`
-	RoomID            uuid.UUID         `gorm:"type:uuid;not null;index" json:"room_id"`
-	Room              *Room             `gorm:"foreignKey:RoomID" json:"room,omitempty"`
-	UserID            uuid.UUID         `gorm:"type:uuid;not null;index" json:"user_id"`
-	User              *User             `gorm:"foreignKey:UserID" json:"user,omitempty"`
-	Role              ParticipantRole   `gorm:"type:varchar(20);default:'participant'" json:"role"`
-	Status            ParticipantStatus `gorm:"type:varchar(20);default:'invited';index" json:"status"`
-	InvitedAt         *time.Time        `json:"invited_at,omitempty"`
-	JoinedAt          *time.Time        `gorm:"index" json:"joined_at,omitempty"`
-	LeftAt            *time.Time        `json:"left_at,omitempty"`
-	Duration          *int              `json:"duration,omitempty"` // seconds in meeting
-	CanShareScreen    bool              `gorm:"default:true" json:"can_share_screen"`
-	CanRecord         bool              `gorm:"default:false" json:"can_record"`
-	CanMuteOthers     bool              `gorm:"default:false" json:"can_mute_others"`
-	IsMuted           bool              `gorm:"default:false" json:"is_muted"`
-	IsHandRaised      bool              `gorm:"default:false" json:"is_hand_raised"`
-	IsRemoved         bool              `gorm:"default:false" json:"is_removed"`
-	RemovedBy         *uuid.UUID        `gorm:"type:uuid" json:"removed_by,omitempty"`
-	RemovalReason     *string           `gorm:"type:text" json:"removal_reason,omitempty"`
-	ConnectionQuality *string           `gorm:"type:varchar(20)" json:"connection_quality,omitempty"` // excellent, good, poor
-	DeviceInfo        datatypes.JSON    `gorm:"type:jsonb" json:"device_info,omitempty"`
-	Metadata          datatypes.JSON    `gorm:"type:jsonb;default:'{}'" json:"metadata,omitempty"`
-	CreatedAt         time.Time         `gorm:"default:now()" json:"created_at"`
-	UpdatedAt         time.Time         `gorm:"default:now()" json:"updated_at"`
+	ID     uuid.UUID         `gorm:"type:uuid;primary_key;default:gen_random_uuid()" json:"id"`
+	RoomID uuid.UUID         `gorm:"type:uuid;not null;index" json:"room_id"`
+	Room   *Room             `gorm:"foreignKey:RoomID" json:"room,omitempty"`
+	UserID *uuid.UUID        `gorm:"type:uuid;index" json:"user_id,omitempty"`
+	User   *User             `gorm:"foreignKey:UserID" json:"user,omitempty"`
+	Role   ParticipantRole   `gorm:"type:varchar(20);default:'participant'" json:"role"`
+	Status ParticipantStatus `gorm:"type:varchar(20);default:'invited';index" json:"status"`
+
+	// Invitation fields
+	InvitedEmail      *string        `gorm:"type:varchar(255);index" json:"invited_email,omitempty"`
+	InvitedBy         *uuid.UUID     `gorm:"type:uuid;index" json:"invited_by,omitempty"`
+	InvitedAt         *time.Time     `json:"invited_at,omitempty"`
+	JoinedAt          *time.Time     `gorm:"index" json:"joined_at,omitempty"`
+	LeftAt            *time.Time     `json:"left_at,omitempty"`
+	Duration          *int           `json:"duration,omitempty"` // seconds in meeting
+	CanShareScreen    bool           `gorm:"default:true" json:"can_share_screen"`
+	CanRecord         bool           `gorm:"default:false" json:"can_record"`
+	CanMuteOthers     bool           `gorm:"default:false" json:"can_mute_others"`
+	IsMuted           bool           `gorm:"default:false" json:"is_muted"`
+	IsHandRaised      bool           `gorm:"default:false" json:"is_hand_raised"`
+	IsRemoved         bool           `gorm:"default:false" json:"is_removed"`
+	RemovedBy         *uuid.UUID     `gorm:"type:uuid" json:"removed_by,omitempty"`
+	RemovalReason     *string        `gorm:"type:text" json:"removal_reason,omitempty"`
+	ConnectionQuality *string        `gorm:"type:varchar(20)" json:"connection_quality,omitempty"` // excellent, good, poor
+	DeviceInfo        datatypes.JSON `gorm:"type:jsonb" json:"device_info,omitempty"`
+	Metadata          datatypes.JSON `gorm:"type:jsonb;default:'{}'" json:"metadata,omitempty"`
+	CreatedAt         time.Time      `gorm:"default:now()" json:"created_at"`
+	UpdatedAt         time.Time      `gorm:"default:now()" json:"updated_at"`
 }
 
 // TableName specifies the table name for Participant

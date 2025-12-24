@@ -63,6 +63,22 @@ type Service interface {
 
 	// GetParticipantByRoomAndUser retrieves a participant by room and user ID
 	GetParticipantByRoomAndUser(ctx context.Context, roomID, userID uuid.UUID) (*entities.Participant, error)
+
+	// Invitation methods
+	// InviteUserByEmail invites a user to join a room by email
+	InviteUserByEmail(ctx context.Context, roomID, inviterID uuid.UUID, email string) (*entities.Participant, error)
+
+	// GetInvitationsByEmail retrieves all invitations for a given email
+	GetInvitationsByEmail(ctx context.Context, email string) ([]*entities.Participant, error)
+
+	// AcceptInvitationByEmail accepts an invitation and joins the room
+	AcceptInvitationByEmail(ctx context.Context, roomID uuid.UUID, email string, userID uuid.UUID) (*entities.Room, *entities.Participant, string, error)
+
+	// DeclineInvitationByEmail declines an invitation
+	DeclineInvitationByEmail(ctx context.Context, roomID uuid.UUID, email string, userID uuid.UUID) error
+
+	// GetRoomInvitations retrieves all invitations for a room (host only)
+	GetRoomInvitations(ctx context.Context, roomID, hostID uuid.UUID) ([]*entities.Participant, error)
 }
 
 // Ensure RoomService implements Service interface

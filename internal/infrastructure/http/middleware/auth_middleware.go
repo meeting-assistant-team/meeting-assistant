@@ -125,6 +125,7 @@ func EchoAuth(oauthService *auth.OAuthService) echo.MiddlewareFunc {
 						if err == nil {
 							c.Set("user", user)
 							c.Set("user_id", user.ID)
+							c.Set("user_email", user.Email)
 							return next(c)
 						}
 					}
@@ -146,9 +147,10 @@ func EchoAuth(oauthService *auth.OAuthService) echo.MiddlewareFunc {
 				return echo.NewHTTPError(http.StatusUnauthorized, "Invalid or expired token")
 			}
 
-			// set into echo context: user and user_id
+			// set into echo context: user, user_id, and user_email
 			c.Set("user", user)
 			c.Set("user_id", user.ID)
+			c.Set("user_email", user.Email)
 
 			return next(c)
 		}

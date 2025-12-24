@@ -46,6 +46,7 @@ var (
 	ErrAlreadyInvited           = errors.New("user already invited or in room")
 	ErrInvalidParticipantStatus = errors.New("invalid participant status for this operation")
 	ErrWaitingForHostApproval   = errors.New("waiting for host approval")
+	ErrInvitationNotFound       = errors.New("invitation not found")
 )
 
 // Recording errors

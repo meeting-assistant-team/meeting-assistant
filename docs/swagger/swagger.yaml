@@ -27,6 +27,21 @@ definitions:
       updated_at:
         type: string
     type: object
+  github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.AcceptInvitationResponse:
+    properties:
+      livekit_token:
+        type: string
+      livekit_url:
+        type: string
+      message:
+        type: string
+      participant:
+        $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.ParticipantResponse'
+      room:
+        $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.RoomResponse'
+      status:
+        type: string
+    type: object
   github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.CreateRoomRequest:
     properties:
       description:
@@ -57,6 +72,41 @@ definitions:
     - name
     - type
     type: object
+  github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.InvitationItem:
+    properties:
+      invited_at:
+        type: string
+      inviter_id:
+        type: string
+      inviter_name:
+        type: string
+      participant_id:
+        type: string
+      room_id:
+        type: string
+      room_name:
+        type: string
+      room_type:
+        type: string
+    type: object
+  github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.InviteByEmailRequest:
+    properties:
+      email:
+        type: string
+    required:
+    - email
+    type: object
+  github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.InviteByEmailResponse:
+    properties:
+      email:
+        type: string
+      message:
+        type: string
+      participant_id:
+        type: string
+      status:
+        type: string
+    type: object
   github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.JoinRoomResponse:
     properties:
       livekit_token:
@@ -79,6 +129,15 @@ definitions:
       status:
         description: '"joined" or "waiting"'
         type: string
+    type: object
+  github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.MyInvitationsResponse:
+    properties:
+      invitations:
+        items:
+          $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.InvitationItem'
+        type: array
+      total:
+        type: integer
     type: object
   github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.ParticipantListResponse:
     properties:
@@ -104,6 +163,14 @@ definitions:
       duration:
         type: integer
       id:
+        type: string
+      invited_at:
+        type: string
+      invited_by:
+        description: User ID who invited
+        type: string
+      invited_email:
+        description: For invited participants
         type: string
       is_hand_raised:
         type: boolean
@@ -376,8 +443,13 @@ paths:
       - Authentication
   /auth/refresh:
     post:
-      description: Gets a new access token using session_id from HttpOnly cookie.
-        No request body needed.
+      description: Gets a new access token using session_id from HttpOnly cookie or
+        header. No request body needed.
+      parameters:
+      - description: Session ID (alternative to cookie)
+        in: header
+        name: session_id
+        type: string
       produces:
       - application/json
       responses:
@@ -387,7 +459,7 @@ paths:
             additionalProperties: true
             type: object
         "400":
-          description: Invalid or missing session_id cookie
+          description: Invalid or missing session_id
           schema:
             additionalProperties: true
             type: object
@@ -425,6 +497,31 @@ paths:
       summary: Generate test JWT token (Development Only)
       tags:
       - Authentication
+  /invitations/me:
+    get:
+      description: Retrieves all room invitations sent to the current user's email
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: List of invitations
+          schema:
+            $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.MyInvitationsResponse'
+        "401":
+          description: User not authenticated
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Failed to get invitations
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get my invitations
+      tags:
+      - Invitations
   /rooms:
     get:
       description: Gets a paginated list of rooms with optional filters
@@ -643,6 +740,184 @@ paths:
       summary: Transfer host role
       tags:
       - Participants
+  /rooms/{id}/invitations:
+    get:
+      description: Retrieves all invitations for a room (host only)
+      parameters:
+      - description: Room ID (UUID)
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: List of invitations
+          schema:
+            $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.ParticipantListResponse'
+        "400":
+          description: Invalid room ID
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: User not authenticated
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: User is not the host
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Failed to get invitations
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get room invitations
+      tags:
+      - Invitations
+    post:
+      consumes:
+      - application/json
+      description: Allows the host to invite a user to join the room by providing
+        their email
+      parameters:
+      - description: Room ID (UUID)
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Email of user to invite
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.InviteByEmailRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Invitation sent successfully
+          schema:
+            $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.InviteByEmailResponse'
+        "400":
+          description: Invalid request
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: User not authenticated
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: User is not the host
+          schema:
+            additionalProperties: true
+            type: object
+        "409":
+          description: User already invited
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Failed to send invitation
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Invite user by email
+      tags:
+      - Invitations
+  /rooms/{id}/invitations/accept:
+    post:
+      description: Accepts an invitation to join a room
+      parameters:
+      - description: Room ID (UUID)
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Successfully joined room
+          schema:
+            $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.AcceptInvitationResponse'
+        "400":
+          description: Invalid room ID
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: User not authenticated
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Invitation not found
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Failed to accept invitation
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Accept invitation
+      tags:
+      - Invitations
+  /rooms/{id}/invitations/decline:
+    post:
+      description: Declines an invitation to join a room
+      parameters:
+      - description: Room ID (UUID)
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Invitation declined
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid room ID
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: User not authenticated
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Invitation not found
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Failed to decline invitation
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Decline invitation
+      tags:
+      - Invitations
   /rooms/{id}/participants:
     get:
       description: Gets a list of all participants in a room
@@ -943,6 +1218,98 @@ paths:
       summary: Get waiting participants
       tags:
       - Participants
+  /test/storage/download-url:
+    get:
+      description: Generate a presigned URL for downloading a file from MinIO
+      parameters:
+      - description: File path/name in bucket
+        in: query
+        name: file
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Download URL
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Missing file parameter
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Failed to generate URL
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Generate download URL
+      tags:
+      - Storage Test
+  /test/storage/files:
+    get:
+      description: List all files in the MinIO bucket with optional prefix filter
+      parameters:
+      - description: File prefix filter
+        in: query
+        name: prefix
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: File list
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Failed to list files
+          schema:
+            additionalProperties: true
+            type: object
+      summary: List files in MinIO bucket
+      tags:
+      - Storage Test
+  /test/storage/info:
+    get:
+      description: Get information about the MinIO bucket and connection status
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Bucket info
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Failed to get bucket info
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Test MinIO bucket info
+      tags:
+      - Storage Test
+  /test/storage/upload:
+    post:
+      description: Test uploading a text file to MinIO to verify connection and credentials
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Upload successful
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Upload failed
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Test MinIO upload
+      tags:
+      - Storage Test
   /webhooks/assemblyai:
     post:
       consumes:
