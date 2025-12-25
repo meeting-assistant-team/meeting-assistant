@@ -290,38 +290,32 @@ func (h *WebhookHandler) handleEgressEndedV2(c echo.Context, event *livekit.Webh
 			fnameLower := strings.ToLower(fname)
 
 			// Filter for audio files:
-			// 1. Must have audio file extension (.ogg, .mp3, .wav, .m4a)
-			// 2. Must contain "audio" in filename (from {track_type} template)
-			// 3. Must NOT be video file (.mp4, .webm, .avi, .mov)
+			// 1. Must have audio file extension (.ogg, .mp3, .wav, .m4a, .mp4)
+			// 2. Must contain "audio" in filename (from RoomComposite audio-only output)
+			// Note: MP4 can be audio-only (AAC codec without video track)
 			isAudioExtension := strings.HasSuffix(fnameLower, ".ogg") ||
 				strings.HasSuffix(fnameLower, ".mp3") ||
 				strings.HasSuffix(fnameLower, ".wav") ||
-				strings.HasSuffix(fnameLower, ".m4a")
-
-			isVideoExtension := strings.HasSuffix(fnameLower, ".mp4") ||
-				strings.HasSuffix(fnameLower, ".webm") ||
-				strings.HasSuffix(fnameLower, ".avi") ||
-				strings.HasSuffix(fnameLower, ".mov")
+				strings.HasSuffix(fnameLower, ".m4a") ||
+				strings.HasSuffix(fnameLower, ".mp4")
 
 			hasAudioInName := strings.Contains(fnameLower, "audio")
 
-			// Select file if it's audio and not video
-			if isAudioExtension && hasAudioInName && !isVideoExtension {
+			// Select file if it has audio extension and contains "audio" in name
+			// For RoomComposite audio-only, filename is like: audio-{time}.mp4
+			if isAudioExtension && hasAudioInName {
 				audioFilename = fname
 				h.logger.Info("✅ Selected audio file",
 					zap.String("filename", fname),
 					zap.Bool("is_audio_ext", isAudioExtension),
 					zap.Bool("has_audio_name", hasAudioInName))
 				break
-			} else if isVideoExtension {
-				h.logger.Info("⏭️  Skipping video file",
-					zap.String("filename", fname))
 			}
 		}
 
 		// If no audio file found, skip this egress event
 		if audioFilename == "" {
-			h.logger.Info("⏭️  No audio file in this egress, skipping AssemblyAI submission (likely video-only egress)",
+			h.logger.Info("⏭️  No audio file in this egress, skipping AssemblyAI submission",
 				zap.Int("file_count", len(event.EgressInfo.FileResults)))
 			return HandleSuccess(h.logger, c, map[string]interface{}{"status": "ok", "event": "egress_ended_no_audio"})
 		}

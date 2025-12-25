@@ -884,14 +884,37 @@ func (s *RoomService) InviteUserByEmail(ctx context.Context, roomID, inviterID u
 		return nil, usecaseErrors.ErrNotHost
 	}
 
-	// Check if already invited with this email
+	// Check if already invited/participating with this email
 	existing, err := s.participantRepo.FindByRoomAndEmail(ctx, roomID, email)
+	now := time.Now()
+
+	// If invitation already exists, handle based on status
 	if err == nil && existing != nil {
-		return nil, usecaseErrors.ErrAlreadyInvited
+		switch existing.Status {
+		case entities.ParticipantStatusInvited:
+			// Already pending - return existing invitation (idempotent for network lag)
+			log.Printf("[Invitation] User already invited (pending): email=%s, room=%s", email, room.Name)
+			return existing, nil
+
+		case entities.ParticipantStatusJoined:
+			// Already in room - no need to invite again
+			return nil, usecaseErrors.ErrAlreadyInvited
+
+		case entities.ParticipantStatusDeclined, entities.ParticipantStatusLeft:
+			// User declined or left - allow re-invitation by updating status
+			existing.Status = entities.ParticipantStatusInvited
+			existing.InvitedBy = &inviterID
+			existing.InvitedAt = &now
+			if err := s.participantRepo.Update(ctx, existing); err != nil {
+				return nil, fmt.Errorf("failed to update invitation: %w", err)
+			}
+			log.Printf("[Invitation] User re-invited to room: email=%s, room=%s, previous_status=%s",
+				email, room.Name, existing.Status)
+			return existing, nil
+		}
 	}
 
-	// Create invitation participant record
-	now := time.Now()
+	// Create new invitation participant record
 	participant := &entities.Participant{
 		RoomID:       roomID,
 		UserID:       nil, // Not assigned yet

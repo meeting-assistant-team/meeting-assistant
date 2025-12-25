@@ -102,30 +102,15 @@ func (m *MinIOClient) UploadText(ctx context.Context, objectName string, content
 	return m.UploadFile(ctx, objectName, reader, int64(len(content)), "text/plain")
 }
 
-// GetFileURL gets a presigned URL for accessing a file
+// GetFileURL gets a public URL for accessing a file
+// Since the bucket has public read policy, we return direct URL without signature
 func (m *MinIOClient) GetFileURL(ctx context.Context, objectName string, expiry time.Duration) (string, error) {
-	// If public URL is configured, use it to construct direct access URL
-	// This is useful when MinIO is behind a reverse proxy (e.g., Nginx)
+	// If public URL is configured, return direct public URL (no signature needed)
+	// This is useful when MinIO is behind a reverse proxy with public bucket policy
 	if m.publicURL != "" {
-		// Generate presigned URL with public URL
-		url, err := m.client.PresignedGetObject(ctx, m.bucket, objectName, expiry, nil)
-		if err != nil {
-			return "", fmt.Errorf("failed to generate presigned URL: %w", err)
-		}
-
-		// Replace the internal endpoint with public URL
-		// Original: http://minio.infoquang.id.vn:9000/bucket/path?query
-		// Replace with: https://minio.infoquang.id.vn/bucket/path?query
-		urlStr := url.String()
-
-		// Find the bucket position in URL
-		// Format: scheme://endpoint/bucket/object?query
-		bucketPos := len(url.Scheme) + 3 + len(url.Host) // "https://" + host
-		if bucketPos < len(urlStr) {
-			// Construct new URL with public endpoint
-			pathAndQuery := urlStr[bucketPos:] // /bucket/object?query
-			return m.publicURL + pathAndQuery, nil
-		}
+		// Format: https://minio.infoquang.id.vn/bucket-name/object-path
+		publicURL := fmt.Sprintf("%s/%s/%s", m.publicURL, m.bucket, objectName)
+		return publicURL, nil
 	}
 
 	// Fallback to standard presigned URL
