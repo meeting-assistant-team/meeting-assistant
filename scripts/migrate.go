@@ -10,7 +10,7 @@ import (
 	"github.com/johnquangdev/meeting-assistant/pkg/config"
 )
 
-func main() {
+func mainn() {
 	// Load configuration
 	cfg, err := config.Load()
 	if err != nil {

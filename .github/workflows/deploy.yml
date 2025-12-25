@@ -106,8 +106,8 @@ jobs:
             cat docker-compose.prod.yml
 
             # Pull and deploy
-            docker compose -f docker-compose.prod.yml pull app
-            docker compose -f docker-compose.prod.yml up -d app
+            docker compose -f docker-compose.prod.yml -f docker-compose.traefik.yml pull app
+            docker compose -f docker-compose.prod.yml -f docker-compose.traefik.yml up -d --force-recreate app
 
             # Clean up unused images
             docker images | grep "ghcr.io/meeting-assistant-team" | grep -v "${TAG}" | awk '{print $3}' | xargs --no-run-if-empty docker rmi
