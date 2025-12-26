@@ -73,10 +73,6 @@ swagger: ## Generate Swagger documentation
 	@echo "Generating Swagger docs..."
 	swag init -g cmd/api/main.go --parseDependency --parseInternal --parseDepth 2 --output docs/swagger
 # Test users management
-user-test: ## Create 5 test users with access tokens (run on VPS)
-	@echo "🔧 Creating test users in remote container..."
-	@docker exec meeting-assistant-app ./create-test-users
-
-user-clean: ## Delete all test users
-	@echo "🧹 Deleting test users..."
-	@docker exec meeting-assistant-postgres psql -U postgres -d meeting_assistant -c "DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE email LIKE '%@test.local'); DELETE FROM users WHERE email LIKE '%@test.local'; SELECT 'Deleted test users';"
+user-test: ## Create 5 test users with access tokens (works on local and VPS)
+	@echo "🔧 Creating test users..."
+	@go run ./scripts/create_test_users.go
