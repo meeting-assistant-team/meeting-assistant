@@ -86,6 +86,13 @@ func main() {
 			continue
 		}
 
+		// Generate access token for dev (with long expiry)
+		devAccessToken, err := jwtManager.GenerateAccessTokenWithExpiry(user.ID, user.Email, string(user.Role), cfg.JWT.DevAccessExpiry)
+		if err != nil {
+			log.Printf("❌ Failed to generate dev access token for %s: %v", testUser.Email, err)
+			continue
+		}
+
 		// Generate refresh token
 		refreshToken, err := jwtManager.GenerateRefreshToken(user.ID)
 		if err != nil {
@@ -105,8 +112,11 @@ func main() {
 			continue
 		}
 
-		// Print token info
-		fmt.Printf("═══════════════════════════════════════════════════════════════\n")
+		// Print token infoDefault expiry: %v):\n", cfg.JWT.AccessExpiry)
+		fmt.Printf("%s\n", accessToken)
+		fmt.Printf("\n🔐 Dev Access Token (Long expiry: %v):\n", cfg.JWT.DevAccessExpiry)
+		fmt.Printf("%s\n", devAccessToken)
+		fmt.Printf("═══════════════════════════════════════════════════════\n")
 		fmt.Printf("🟢 User %d: %s\n", i+1, testUser.Name)
 		fmt.Printf("═══════════════════════════════════════════════════════════════\n")
 		fmt.Printf("Email:        %s\n", user.Email)
