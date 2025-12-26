@@ -3,6 +3,8 @@ services:
     image: postgres:16-alpine
     container_name: meeting-assistant-postgres-prod
     restart: always
+    ports:
+      - "${DB_EXPOSE_HOST}:${DB_EXPOSE_PORT}:5432"
     environment:
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
