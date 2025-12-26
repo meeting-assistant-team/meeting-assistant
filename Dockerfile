@@ -19,6 +19,9 @@ COPY . .
 # Build the application
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -ldflags="-w -s" -o /app/bin/meeting-assistant ./cmd/api/main.go
 
+# Build test users creation tool
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -ldflags="-w -s" -o /app/bin/create-test-users ./scripts/create_test_users.go
+
 # Runtime stage
 FROM alpine:3.18
 
@@ -32,8 +35,9 @@ RUN addgroup -g 1000 appuser && \
 # Set working directory
 WORKDIR /app
 
-# Copy binary from builder
+# Copy binaries from builder
 COPY --from=builder /app/bin/meeting-assistant .
+COPY --from=builder /app/bin/create-test-users .
 
 # Copy migrations
 COPY --from=builder /app/migrations ./migrations
