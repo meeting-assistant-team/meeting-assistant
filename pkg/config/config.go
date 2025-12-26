@@ -63,10 +63,11 @@ type GoogleOAuthConfig struct {
 
 // JWTConfig holds JWT configuration
 type JWTConfig struct {
-	AccessSecret  string        `envconfig:"JWT_ACCESS_SECRET"`
-	RefreshSecret string        `envconfig:"JWT_REFRESH_SECRET"`
-	AccessExpiry  time.Duration `envconfig:"JWT_ACCESS_TOKEN_EXPIRE"`
-	RefreshExpiry time.Duration `envconfig:"JWT_REFRESH_TOKEN_EXPIRE"`
+	AccessSecret    string        `envconfig:"JWT_ACCESS_SECRET"`
+	RefreshSecret   string        `envconfig:"JWT_REFRESH_SECRET"`
+	AccessExpiry    time.Duration `envconfig:"JWT_ACCESS_TOKEN_EXPIRE"`
+	RefreshExpiry   time.Duration `envconfig:"JWT_REFRESH_TOKEN_EXPIRE"`
+	DevAccessExpiry time.Duration `envconfig:"JWT_ACCESS_TOKEN_EXPIRE_DEV" default:"744h"`
 }
 
 // StorageConfig holds storage configuration

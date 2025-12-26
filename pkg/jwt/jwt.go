@@ -48,6 +48,26 @@ func (m *Manager) GenerateAccessToken(userID uuid.UUID, email, role string) (str
 	return token.SignedString([]byte(m.accessSecret))
 }
 
+// GenerateAccessTokenWithExpiry generates an access token with custom expiry
+func (m *Manager) GenerateAccessTokenWithExpiry(userID uuid.UUID, email, role string, expiry time.Duration) (string, error) {
+	now := time.Now()
+	claims := &Claims{
+		UserID: userID,
+		Email:  email,
+		Role:   role,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(now.Add(expiry)),
+			IssuedAt:  jwt.NewNumericDate(now),
+			NotBefore: jwt.NewNumericDate(now),
+			Issuer:    m.issuer,
+			Subject:   userID.String(),
+		},
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString([]byte(m.accessSecret))
+}
+
 // GenerateRefreshToken generates a refresh token
 func (m *Manager) GenerateRefreshToken(userID uuid.UUID) (string, error) {
 	now := time.Now()

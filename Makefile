@@ -75,4 +75,5 @@ swagger: ## Generate Swagger documentation
 # Test users management
 user-test: ## Create 5 test users with access tokens (works on local and VPS)
 	@echo "🔧 Creating test users..."
-	@go run ./scripts/create_test_users.go
+	docker exec meeting-assistant-app-prod ./create-test-users
+	@echo "✅ Test users created. Check logs for details."
