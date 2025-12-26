@@ -279,4 +279,8 @@ Thumbs.db
 bin/
 .vscode/
 docs 
-scripts
+
+# ======================================
+# Whitelist scripts/create_test_users.go
+scripts/
+!scripts/create_test_users.go
