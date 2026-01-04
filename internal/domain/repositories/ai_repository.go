@@ -1,6 +1,11 @@
 package repositories
 
-import "github.com/johnquangdev/meeting-assistant/internal/domain/entities"
+import (
+	"context"
+
+	"github.com/google/uuid"
+	"github.com/johnquangdev/meeting-assistant/internal/domain/entities"
+)
 
 // AIRepository defines persistence operations for transcripts and AI results
 type AIRepository interface {
@@ -10,10 +15,11 @@ type AIRepository interface {
 
 	// Summaries
 	SaveMeetingSummary(s *entities.MeetingSummary) error
-	GetMeetingSummaryByRoom(roomID string) (*entities.MeetingSummary, error)
+	GetMeetingSummaryByRoom(ctx context.Context, roomID uuid.UUID) (*entities.MeetingSummary, error)
 
 	// Action items
 	SaveActionItems(items []*entities.ActionItem) error
+	GetActionItemsBySummary(ctx context.Context, summaryID uuid.UUID) ([]entities.ActionItem, error)
 	ListActionItemsByRoom(roomID string) ([]*entities.ActionItem, error)
 
 	// Participant reports
