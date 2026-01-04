@@ -12,13 +12,14 @@ import (
 type AIJobStatus string
 
 const (
-	AIJobStatusPending    AIJobStatus = "pending"    // Waiting to be submitted to AssemblyAI
-	AIJobStatusSubmitted  AIJobStatus = "submitted"  // Submitted to AssemblyAI, waiting for transcript
-	AIJobStatusProcessing AIJobStatus = "processing" // Being processed by Groq for analysis
-	AIJobStatusCompleted  AIJobStatus = "completed"  // All processing done
-	AIJobStatusFailed     AIJobStatus = "failed"     // Processing failed
-	AIJobStatusRetrying   AIJobStatus = "retrying"   // Retrying after failure
-	AIJobStatusCancelled  AIJobStatus = "cancelled"  // Job was cancelled
+	AIJobStatusPending         AIJobStatus = "pending"          // Waiting to be submitted to AssemblyAI
+	AIJobStatusSubmitted       AIJobStatus = "submitted"        // Submitted to AssemblyAI, waiting for transcript
+	AIJobStatusTranscriptReady AIJobStatus = "transcript_ready" // Transcript ready, waiting for summary generation
+	AIJobStatusSummarizing     AIJobStatus = "summarizing"      // Being processed by Groq for summary
+	AIJobStatusProcessing      AIJobStatus = "processing"       // Being processed by Groq for analysis
+	AIJobStatusCompleted       AIJobStatus = "completed"        // All processing done
+	AIJobStatusFailed          AIJobStatus = "failed"           // Processing failed
+	AIJobStatusCancelled       AIJobStatus = "cancelled"        // Job was cancelled
 )
 
 // AIJobType represents the type of AI job
@@ -134,10 +135,10 @@ func (j *AIJob) MarkAsFailed(errMsg string) {
 	j.UpdatedAt = time.Now()
 }
 
-// IncrementRetry increments retry count and marks for retry
+// IncrementRetry increments retry count and keeps status as pending for retry
 func (j *AIJob) IncrementRetry(errMsg string) {
 	j.RetryCount++
-	j.Status = AIJobStatusRetrying
+	j.Status = AIJobStatusPending
 	j.LastError = &errMsg
 	j.UpdatedAt = time.Now()
 }

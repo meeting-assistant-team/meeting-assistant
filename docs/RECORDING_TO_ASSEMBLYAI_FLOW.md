@@ -1,133 +1,155 @@
-# Recording to AssemblyAI Flow
+# Luồng Xử Lý Ghi Âm đến AssemblyAI
 
-## 📊 Architecture Overview
+## 📊 Tổng Quan Kiến Trúc
 
-**High-level flow:**
+**Luồng xử lý tổng quát:**
 
-1. **Room Ends** → LiveKit sends `room_finished` webhook → Update room status
-2. **Recording Ready** → LiveKit sends `recording_finished` webhook → Extract recording URL
-3. **Submit to AI** → Call `AIService.SubmitToAssemblyAI(roomID, recordingURL)` 
-4. **AssemblyAI Processing** → Transcription + Speaker Diarization (~23s for 30-min audio)
-5. **Webhook Callback** → AssemblyAI sends transcript via webhook
-6. **Store Transcript** → Create Transcript in DB with speaker labels
-7. **Ready for Phase 2** → AI Analysis with Groq LLM
+1. **Phòng Kết Thúc** → LiveKit gửi webhook `room_finished` → Cập nhật trạng thái phòng
+2. **Ghi Âm Sẵn Sàng** → LiveKit gửi webhook `egress_ended` → Trích xuất URL ghi âm
+3. **Gửi đến AI** → Gọi `AIService.SubmitToAssemblyAI(roomID, recordingURL)` 
+4. **Xử Lý AssemblyAI** → Chuyển đổi văn bản + Phân tách người nói (~23s cho audio 30 phút)
+5. **Webhook Callback** → AssemblyAI gửi bản ghi âm qua webhook
+6. **Lưu Trữ Bản Ghi** → Tạo Transcript trong DB với nhãn người nói
+7. **Sẵn Sàng cho Giai Đoạn 2** → Phân tích AI với Groq LLM
 
-## 🎬 LiveKit Recording Setup
+## 🎬 Cấu Hình LiveKit Recording
 
-**Prerequisites:**
-- LiveKit room created
-- Recording enabled in room config
-- Recording storage configured (S3/local)
-- Webhooks enabled in LiveKit Dashboard
+**Phương thức:** Legacy Recording thông qua Dashboard config (đơn giản, ổn định)
 
-**Required webhook events:**
-- `room_finished` - Last participant leaves
-- `recording_finished` ⭐ **CRITICAL** - Recording ready for download
+**Lưu ý quan trọng:** Legacy recording vẫn sử dụng webhook `egress_ended`, chỉ khác ở cách config (Dashboard vs code)
 
-**Key data from recording_finished webhook:**
-- `room.name` - LiveKit room identifier
-- `egress.file.location` - HTTP URL to download recording (required)
-- `egress.status` - Should be `EGRESS_COMPLETE`
+**Điều kiện tiên quyết:**
+- Phòng LiveKit đã được tạo
+- S3 storage được cấu hình **MỘT LẦN** trong LiveKit Dashboard (Settings → Recording)
+- Auto-record enabled trong Dashboard
+- Webhooks được bật trong LiveKit Dashboard
 
-## 🔧 Architecture Components
+**Các sự kiện webhook bắt buộc:**
+- `room_finished` - Người tham gia cuối cùng rời khỏi phòng
+- `egress_ended` ⭐ **QUAN TRỌNG** - Ghi âm sẵn sàng để tải xuống (dùng cho cả legacy và modern egress)
+
+**Dữ liệu chính từ webhook egress_ended:**
+- `room.name` - Định danh phòng LiveKit
+- `egress_info.file_results[0].location` - URL HTTP để tải xuống ghi âm
+- `egress_info.egress_id` - ID của egress job
+- `egress_info.file_results[0].size` - Kích thước file (bytes)
+- `egress_info.file_results[0].duration` - Thời lượng (milliseconds)
+
+## 🔧 Các Thành Phần Kiến Trúc
 
 **WebhookHandler** (internal/adapter/handler/webhook.go)
-- Receives LiveKit webhook events
-- Routes based on event type
-- `handleRecordingFinished()` - Extracts recording URL, calls AIService
+- Nhận các sự kiện webhook từ LiveKit
+- Định tuyến dựa trên loại sự kiện
+- `handleRecordingFinished()` - Trích xuất URL ghi âm, gọi AIService
 
 **AIService** (internal/usecase/ai/service.go)
-- `SubmitToAssemblyAI(meetingID, recordingURL)` - Submits to AssemblyAI with retries
-- `HandleAssemblyAIWebhook()` - Processes AssemblyAI callback, stores transcript
+- `SubmitToAssemblyAI(meetingID, recordingURL)` - Gửi đến AssemblyAI với cơ chế retry
+- `HandleAssemblyAIWebhook()` - Xử lý callback từ AssemblyAI, lưu trữ bản ghi
 
 **Repositories:**
-- `AIJobRepository` - Tracks transcription jobs (pending, submitted, completed, failed)
-- `TranscriptRepository` - Stores final transcripts with speaker info
+- `AIJobRepository` - Theo dõi các công việc chuyển đổi văn bản (pending, submitted, completed, failed)
+- `TranscriptRepository` - Lưu trữ bản ghi cuối cùng với thông tin người nói
 
-## 📡 Configuration Required
+## 📡 Cấu Hình Bắt Buộc
 
-**Environment variables:**
+**Trong LiveKit Dashboard (chỉ cần cấu hình MỘT LẦN):**
+1. Truy cập Settings → Recording
+2. Chọn S3 Storage và nhập credentials:
+   - S3 Endpoint (hoặc AWS region)
+   - Access Key ID
+   - Secret Access Key
+   - Bucket Name
+3. Enable "Auto-record rooms"
+4. Save settings
+
+**Biến môi trường backend:**
 ```
-ASSEMBLYAI_API_KEY=aai_xxxxx                          # Get from AssemblyAI dashboard
-ASSEMBLYAI_WEBHOOK_SECRET=wh_xxxxx                    # Generate secret for webhook signature
+ASSEMBLYAI_API_KEY=aai_xxxxx                          # Lấy từ AssemblyAI dashboard
+ASSEMBLYAI_WEBHOOK_SECRET=wh_xxxxx                    # Tạo secret cho webhook signature
 ASSEMBLYAI_WEBHOOK_BASE_URL=https://your-domain/v1/webhooks/assemblyai
+
+LIVEKIT_URL=wss://your-livekit.com
+LIVEKIT_API_KEY=APIxxxxx
+LIVEKIT_API_SECRET=secretxxxxx
 ```
 
-For local dev with ngrok: Use ngrok URL as ASSEMBLYAI_WEBHOOK_BASE_URL
+Cho môi trường dev local với ngrok: Sử dụng URL ngrok làm ASSEMBLYAI_WEBHOOK_BASE_URL
 
-## 🔄 Processing Pipeline Details
+## 🔄 Chi Tiết Pipeline Xử Lý
 
-### Phase 1: Recording Extraction
-- LiveKit detects recording complete → sends webhook with recording URL
-- Backend extracts URL from `egress.file.location`
-- Finds room by LiveKit room name
-- Calls AIService to submit recording
+### Giai Đoạn 1: Trích Xuất Ghi Âm
+- LiveKit phát hiện ghi âm hoàn tất → gửi webhook `egress_ended`
+- Backend trích xuất URL từ `egress_info.file_results[0].location`
+- Tìm phòng theo tên phòng LiveKit
+- Gọi AIService để gửi ghi âm
 
-### Phase 2: AssemblyAI Submission
-- Creates AIJob with status: `pending`
-- Submits recording URL to AssemblyAI API
-- Includes webhook URL for callback
-- Gets back external_job_id (transcript ID)
-- Updates AIJob status: `submitted`
-- Retry logic: Exponential backoff (1s, 2s, 4s, 8s, 15s) - max 3 attempts
+### Giai Đoạn 2: Gửi đến AssemblyAI
+- Tạo AIJob với trạng thái: `pending`
+- Gửi URL ghi âm đến AssemblyAI API
+- Bao gồm URL webhook cho callback
+- Nhận về external_job_id (transcript ID)
+- Cập nhật trạng thái AIJob: `submitted`
+- Cơ chế retry: Exponential backoff (1s, 2s, 4s, 8s, 15s) - tối đa 3 lần thử
 
-### Phase 3: AssemblyAI Processing
-- AssemblyAI processes audio asynchronously
-- Extracts:
-  - **Full transcript text** with word-level timestamps
-  - **Speaker diarization** (identifies different speakers automatically)
-  - **Language detection**
-  - **Confidence scores** per word
+### Giai Đoạn 3: Xử Lý AssemblyAI
+- AssemblyAI xử lý audio không đồng bộ
+- Trích xuất:
+  - **Văn bản đầy đủ** với timestamp cấp từ
+  - **Phân tách người nói** (tự động nhận diện các người nói khác nhau)
+  - **Phát hiện ngôn ngữ**
+  - **Điểm tin cậy** cho mỗi từ
 
-### Phase 4: Webhook Callback
-- AssemblyAI sends webhook when processing complete
-- Includes full transcript with speaker information
-- Signature verification (HMAC-SHA256)
+### Giai Đoạn 4: Webhook Callback
+- AssemblyAI gửi webhook khi xử lý hoàn tất
+- Bao gồm bản ghi đầy đủ với thông tin người nói
+- Xác thực chữ ký (HMAC-SHA256)
 
-### Phase 5: Transcript Storage
-- Verify webhook signature against ASSEMBLYAI_WEBHOOK_SECRET
-- Parse AssemblyAI response
-- Create Transcript record with:
-  - Full transcript text
-  - Detected language
-  - Speaker count
-  - Raw JSON response (stored as JSONB)
-- Update AIJob: status → `completed`, link to transcript_id
+### Giai Đoạn 5: Lưu Trữ Bản Ghi
+- Xác minh chữ ký webhook với ASSEMBLYAI_WEBHOOK_SECRET
+- Phân tích phản hồi từ AssemblyAI
+- Tạo bản ghi Transcript với:
+  - Văn bản đầy đủ
+  - Ngôn ngữ phát hiện
+  - Số lượng người nói
+  - Phản hồi JSON thô (lưu dưới dạng JSONB)
+- Cập nhật AIJob: status → `completed`, liên kết đến transcript_id
 
-## 🗄️ Database Tables Used
+## 🗄️ Các Bảng Database Được Sử Dụng
 
 **ai_jobs**
-- Tracks transcription job lifecycle
-- Fields: id, meeting_id, job_type, status, external_job_id, recording_url, transcript_id
-- Statuses: pending → submitted → completed (or failed)
+- Theo dõi vòng đời công việc chuyển đổi văn bản
+- Các trường: id, meeting_id, job_type, status, external_job_id, recording_url, transcript_id
+- Trạng thái: pending → submitted → completed (hoặc failed)
 
 **transcripts**
-- Stores final transcripts
-- Fields: id, recording_id, meeting_id, text, language, speaker_count, raw_data
-- Raw data contains full AssemblyAI response for Phase 2 processing
+- Lưu trữ bản ghi cuối cùng
+- Các trường: id, recording_id, meeting_id, text, language, speaker_count, raw_data
+- Raw data chứa phản hồi đầy đủ từ AssemblyAI cho xử lý Giai đoạn 2
 
-## ⚡ Key Design Decisions
+## ⚡ Các Quyết Định Thiết Kế Chính
 
-1. **Webhook-driven** - No polling, fully async
-2. **Speaker diarization built-in** - AssemblyAI handles it automatically, no extra API calls
-3. **Exponential backoff** - Handles temporary failures gracefully
-4. **Signature verification** - Validates AssemblyAI webhooks are genuine
-5. **JSONB storage** - Full AssemblyAI response available for future enhancements
+1. **Legacy Recording thay vì Egress** - Đơn giản hơn, ít lỗi hơn, chỉ 1 webhook event
+2. **S3 config trong Dashboard** - Bảo mật hơn, không hardcode credentials trong code
+3. **Webhook-driven** - Không polling, hoàn toàn bất đồng bộ
+4. **Speaker diarization tích hợp sẵn** - AssemblyAI xử lý tự động, không cần API call thêm
+5. **Exponential backoff** - Xử lý lỗi tạm thời một cách uyển chuyển
+6. **Xác thực chữ ký** - Xác nhận webhook từ AssemblyAI là chính thức
+7. **Lưu trữ JSONB** - Phản hồi đầy đủ từ AssemblyAI sẵn sàng cho các cải tiến tương lai
 
-## 🚨 Error Handling
+## 🚨 Xử Lý Lỗi
 
-**Recording URL missing** → Log warning, return 200 OK, can retry later
+**Thiếu URL ghi âm** → Ghi log cảnh báo, trả về 200 OK, có thể retry sau
 
-**AssemblyAI submission fails** → Exponential backoff retry, then mark as failed with error message
+**Gửi AssemblyAI thất bại** → Exponential backoff retry, sau đó đánh dấu failed với thông báo lỗi
 
-**Webhook signature invalid** → Reject request (400), log security warning
+**Chữ ký webhook không hợp lệ** → Từ chối request (400), ghi log cảnh báo bảo mật
 
-**Processing timeout** (Phase 2 task) → Implement polling or timeout recovery
+**Timeout xử lý** (task Giai đoạn 2) → Triển khai polling hoặc khôi phục timeout
 
-## 📚 Related Documentation
+## 📚 Tài Liệu Liên Quan
 
-- [LiveKit Recording Docs](https://docs.livekit.io/realtime/server/recording/)
-- [LiveKit Webhooks Docs](https://docs.livekit.io/realtime/server/webhooks/)
+- [Tài liệu LiveKit Recording](https://docs.livekit.io/realtime/server/recording/)
+- [Tài liệu LiveKit Webhooks](https://docs.livekit.io/realtime/server/webhooks/)
 - [AssemblyAI Transcription API](https://www.assemblyai.com/docs/transcription)
 - [AssemblyAI Speaker Diarization](https://www.assemblyai.com/docs/models/speaker-diarization)
 

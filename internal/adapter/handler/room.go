@@ -1,6 +1,9 @@
 package handler
 
 import (
+	"context"
+	"encoding/json"
+	"fmt"
 	"strconv"
 
 	"github.com/google/uuid"
@@ -8,22 +11,29 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/johnquangdev/meeting-assistant/errors"
+	summaryDTO "github.com/johnquangdev/meeting-assistant/internal/adapter/dto"
 	"github.com/johnquangdev/meeting-assistant/internal/adapter/dto/room"
 	"github.com/johnquangdev/meeting-assistant/internal/adapter/presenter"
+	"github.com/johnquangdev/meeting-assistant/internal/adapter/repository"
 	"github.com/johnquangdev/meeting-assistant/internal/domain/entities"
+	domainrepo "github.com/johnquangdev/meeting-assistant/internal/domain/repositories"
 	roomUsecase "github.com/johnquangdev/meeting-assistant/internal/usecase/room"
 )
 
 // Room handles room-related HTTP requests
 type Room struct {
 	roomService roomUsecase.Service
+	aiJobRepo   *repository.AIJobRepository
+	summaryRepo domainrepo.AIRepository
 	logger      *zap.Logger
 }
 
 // NewRoomHandler creates a new room handler
-func NewRoomHandler(roomService roomUsecase.Service, logger *zap.Logger) *Room {
+func NewRoomHandler(roomService roomUsecase.Service, aiJobRepo *repository.AIJobRepository, summaryRepo domainrepo.AIRepository, logger *zap.Logger) *Room {
 	return &Room{
 		roomService: roomService,
+		aiJobRepo:   aiJobRepo,
+		summaryRepo: summaryRepo,
 		logger:      logger,
 	}
 }
@@ -753,4 +763,209 @@ func (h *Room) GetRoomInvitations(c echo.Context) error {
 	}
 
 	return h.handleSuccess(c, presenter.ToParticipantListResponse(invitations))
+}
+
+// GetMeetingSummary retrieves the AI-generated summary for a meeting
+// @Summary      Get meeting summary
+// @Description  Retrieves the AI-generated meeting summary, including key points, decisions, action items, and sentiment analysis
+// @Tags         Meetings
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id   path      string                                    true  "Room ID (UUID)"
+// @Success      200  {object}  summaryDTO.MeetingSummaryResponse         "Meeting summary retrieved successfully"
+// @Success      202  {object}  summaryDTO.SummaryStatusResponse          "Summary is being generated"
+// @Failure      400  {object}  map[string]interface{}                    "Invalid room ID"
+// @Failure      401  {object}  map[string]interface{}                    "User not authenticated"
+// @Failure      404  {object}  map[string]interface{}                    "Meeting not found or no transcript available"
+// @Failure      500  {object}  map[string]interface{}                    "Failed to retrieve summary"
+// @Router       /meetings/{id}/summary [get]
+func (h *Room) GetMeetingSummary(c echo.Context) error {
+	roomID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		return h.handleError(c, errors.ErrInvalidArgument("Invalid room ID").WithDetail("error", "Room ID must be a valid UUID"))
+	}
+
+	userID, ok := c.Get("user_id").(uuid.UUID)
+	if !ok {
+		return h.handleError(c, errors.ErrUnauthenticated().WithDetail("error", "User not authenticated"))
+	}
+
+	h.logger.Info("Retrieving meeting summary",
+		zap.String("room_id", roomID.String()),
+		zap.String("user_id", userID.String()),
+	)
+
+	// Try to get existing summary
+	summary, err := h.summaryRepo.GetMeetingSummaryByRoom(c.Request().Context(), roomID)
+	if err == nil && summary != nil {
+		// Summary found, prepare response
+		response, err := h.buildSummaryResponse(c.Request().Context(), summary)
+		if err != nil {
+			h.logger.Error("Failed to build summary response",
+				zap.String("room_id", roomID.String()),
+				zap.Error(err),
+			)
+			return h.handleError(c, errors.ErrInternal(err).WithDetail("error", "Failed to build summary response"))
+		}
+
+		h.logger.Info("Meeting summary retrieved successfully",
+			zap.String("room_id", roomID.String()),
+		)
+		return h.handleSuccess(c, response)
+	}
+
+	// No summary yet, check AI job status
+	jobs, err := h.aiJobRepo.ListAIJobsByMeetingID(c.Request().Context(), roomID)
+	if err != nil {
+		h.logger.Error("Failed to retrieve AI job",
+			zap.String("room_id", roomID.String()),
+			zap.Error(err),
+		)
+		return h.handleError(c, errors.ErrNotFound("Meeting not found or no transcript available").WithDetail("error", "No AI job found for this meeting"))
+	}
+
+	// Find the latest job
+	if len(jobs) == 0 {
+		return h.handleError(c, errors.ErrNotFound("Meeting not found or no transcript available").WithDetail("error", "No AI job found for this meeting"))
+	}
+
+	job := jobs[0] // Latest job (ordered by created_at DESC)
+
+	// Check job status
+	switch job.Status {
+	case entities.AIJobStatusTranscriptReady, entities.AIJobStatusSummarizing:
+		// Summary is being processed
+		statusResponse := summaryDTO.SummaryStatusResponse{
+			Status:      string(job.Status),
+			Message:     "Meeting summary is being generated. Please check back in a few moments.",
+			RoomID:      roomID,
+			JobID:       job.ID,
+			SubmittedAt: job.CreatedAt,
+		}
+
+		h.logger.Info("Summary generation in progress",
+			zap.String("room_id", roomID.String()),
+			zap.String("status", string(job.Status)),
+		)
+
+		return c.JSON(202, map[string]interface{}{
+			"data": statusResponse,
+		})
+
+	case entities.AIJobStatusFailed:
+		// Job failed
+		failureReason := "Summary generation failed"
+		if job.LastError != nil {
+			failureReason = *job.LastError
+		}
+
+		h.logger.Error("AI job failed",
+			zap.String("room_id", roomID.String()),
+			zap.String("failure_reason", failureReason),
+		)
+		return h.handleError(c, errors.ErrInternal(fmt.Errorf("%s", failureReason)).WithDetail("error", failureReason))
+
+	case entities.AIJobStatusCompleted:
+		// Job completed but no summary found (shouldn't happen, but handle gracefully)
+		h.logger.Warn("AI job completed but no summary found",
+			zap.String("room_id", roomID.String()),
+		)
+		return h.handleError(c, errors.ErrNotFound("Meeting summary not found").WithDetail("error", "Job completed but summary not available"))
+
+	default:
+		// Other statuses (pending, submitted)
+		h.logger.Info("AI job not ready",
+			zap.String("room_id", roomID.String()),
+			zap.String("status", string(job.Status)),
+		)
+		return h.handleError(c, errors.ErrNotFound("Meeting transcript not ready yet").WithDetail("status", string(job.Status)))
+	}
+}
+
+// buildSummaryResponse converts entities to DTO response
+func (h *Room) buildSummaryResponse(ctx context.Context, summary *entities.MeetingSummary) (*summaryDTO.MeetingSummaryResponse, error) {
+	response := &summaryDTO.MeetingSummaryResponse{
+		ID:               summary.ID,
+		RoomID:           summary.RoomID,
+		TranscriptID:     summary.TranscriptID,
+		ExecutiveSummary: summary.ExecutiveSummary,
+		CreatedAt:        summary.CreatedAt,
+		UpdatedAt:        summary.UpdatedAt,
+	}
+
+	// Parse key points
+	if summary.KeyPoints != nil {
+		var keyPoints []summaryDTO.KeyPoint
+		if err := json.Unmarshal(summary.KeyPoints, &keyPoints); err != nil {
+			h.logger.Warn("Failed to parse key points", zap.Error(err))
+		} else {
+			response.KeyPoints = keyPoints
+		}
+	}
+
+	// Parse decisions
+	if summary.Decisions != nil {
+		var decisions []summaryDTO.Decision
+		if err := json.Unmarshal(summary.Decisions, &decisions); err != nil {
+			h.logger.Warn("Failed to parse decisions", zap.Error(err))
+		} else {
+			response.Decisions = decisions
+		}
+	}
+
+	// Parse topics
+	if summary.Topics != nil {
+		var topics []string
+		if err := json.Unmarshal(summary.Topics, &topics); err != nil {
+			h.logger.Warn("Failed to parse topics", zap.Error(err))
+		} else {
+			response.Topics = topics
+		}
+	}
+
+	// Parse sentiment breakdown
+	if summary.SentimentBreakdown != nil {
+		var sentimentBreakdown map[string]interface{}
+		if err := json.Unmarshal(summary.SentimentBreakdown, &sentimentBreakdown); err != nil {
+			h.logger.Warn("Failed to parse sentiment breakdown", zap.Error(err))
+		} else {
+			response.SentimentBreakdown = sentimentBreakdown
+		}
+	}
+
+	// Set engagement metrics
+	response.EngagementMetrics = summaryDTO.EngagementMetricsDTO{
+		TotalSpeakingTime:       summary.TotalSpeakingTime,
+		EngagementScore:         summary.EngagementScore,
+		ParticipantBalanceScore: summary.ParticipantBalance,
+	}
+
+	// Get action items
+	actionItems, err := h.summaryRepo.GetActionItemsBySummary(ctx, summary.ID)
+	if err != nil {
+		h.logger.Warn("Failed to retrieve action items", zap.Error(err))
+	} else {
+		response.ActionItems = make([]summaryDTO.ActionItemDTO, len(actionItems))
+		for i, item := range actionItems {
+			var assignedTo *string
+			if item.AssignedTo != nil {
+				assignedToStr := item.AssignedTo.String()
+				assignedTo = &assignedToStr
+			}
+
+			response.ActionItems[i] = summaryDTO.ActionItemDTO{
+				ID:          item.ID,
+				Title:       item.Title,
+				Description: item.Description,
+				Type:        string(item.Type),
+				Priority:    string(item.Priority),
+				AssignedTo:  assignedTo,
+				DueDate:     item.DueDate,
+				Status:      string(item.Status),
+				CreatedAt:   item.CreatedAt,
+			}
+		}
+	}
+
+	return response, nil
 }

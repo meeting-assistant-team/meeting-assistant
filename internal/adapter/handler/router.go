@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/labstack/echo/v4"
@@ -56,7 +57,8 @@ func (rt *Router) Setup(e *echo.Echo) {
 	// Setup route groups
 	rt.setupAuthRoutes(v1)
 	rt.setupRoomRoutes(v1)
-	rt.setupInvitationRoutes(v1) // Add invitation routes
+	rt.setupMeetingRoutes(v1)    
+	rt.setupInvitationRoutes(v1) 
 	rt.setupTestRoutes(v1)
 	// AI endpoints
 	if rt.aiController != nil {
@@ -154,6 +156,23 @@ func (rt *Router) setupRoomRoutes(g *echo.Group) {
 	}
 }
 
+// setupMeetingRoutes configures meeting-related routes
+func (rt *Router) setupMeetingRoutes(g *echo.Group) {
+	meetingGroup := g.Group("/meetings")
+
+	// Protect with auth middleware
+	if rt.authMW != nil {
+		meetingGroup.Use(rt.authMW)
+	}
+
+	if rt.roomHandler != nil {
+		// Get meeting summary
+		meetingGroup.GET("/:id/summary", rt.roomHandler.GetMeetingSummary)
+	} else {
+		meetingGroup.GET("/:id/summary", rt.notImplemented)
+	}
+}
+
 // setupInvitationRoutes configures invitation routes
 func (rt *Router) setupInvitationRoutes(g *echo.Group) {
 	// Protect with auth middleware
@@ -171,14 +190,20 @@ func (rt *Router) setupInvitationRoutes(g *echo.Group) {
 
 // setupWebhookRoutes configures webhook routes (no auth required for external webhooks)
 func (rt *Router) setupWebhookRoutes(e *echo.Echo) {
-	webhookGroup := e.Group("/webhooks")
+	webhookGroup := e.Group("/v1/webhooks")
+
+	// Debug log
+	fmt.Println("🚨 [ROUTE DEBUG] Setting up webhook routes")
+	fmt.Println("🚨 [ROUTE DEBUG] Registering POST /v1/webhooks/livekit")
 
 	if rt.webhookHandler != nil {
 		// LiveKit webhook endpoint (public - LiveKit will call this)
 		// Uses proper JWT signature validation
 		webhookGroup.POST("/livekit", rt.webhookHandler.HandleLiveKitWebhookV2)
+		fmt.Println("✅ [ROUTE DEBUG] LiveKit webhook handler registered successfully")
 	} else {
 		webhookGroup.POST("/livekit", rt.notImplemented)
+		fmt.Println("❌ [ROUTE DEBUG] LiveKit webhook handler is NIL!")
 	}
 
 	// AssemblyAI webhook endpoint

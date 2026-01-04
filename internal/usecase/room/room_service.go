@@ -81,34 +81,29 @@ func (s *RoomService) CreateRoom(ctx context.Context, input CreateRoomInput) (*C
 	// Generate LiveKit room name
 	livekitRoomName := fmt.Sprintf("room-%s", uuid.New().String())
 
-	// Create room composite egress for audio-only recording
-	// Using RoomComposite with audio-only preset to get AAC audio in MP4 container
-	// This produces audio-only MP4 files that AssemblyAI can process
-	// Output format: {room_name}/audio-{time}.mp4 (AAC codec, no video track)
-
-	// Use public URL if available (for external LiveKit Cloud access)
-	// Otherwise fallback to internal endpoint for self-hosted LiveKit
-	minioEndpoint := s.storageConfig.GetS3Endpoint()
-	if s.storageConfig.PublicURL != "" {
-		minioEndpoint = s.storageConfig.PublicURL
+	// Configure RoomCompositeEgress for auto-recording
+	// Use public MinIO endpoint for external services to access
+	publicURL := s.storageConfig.PublicURL
+	if publicURL == "" {
+		publicURL = fmt.Sprintf("https://%s", s.storageConfig.Endpoint)
 	}
 
 	egressConfig := &livekit.RoomEgress{
 		Room: &livekit.RoomCompositeEgressRequest{
 			RoomName:  livekitRoomName,
-			AudioOnly: true, // Audio-only, no video
+			AudioOnly: true,
 			FileOutputs: []*livekit.EncodedFileOutput{
 				{
 					FileType: livekit.EncodedFileType_MP4,
-					Filepath: "{room_name}/audio-{time}.mp4",
+					Filepath: "recordings/{time}-{room_name}.mp4",
 					Output: &livekit.EncodedFileOutput_S3{
 						S3: &livekit.S3Upload{
 							AccessKey:      s.storageConfig.AccessKeyID,
 							Secret:         s.storageConfig.SecretAccessKey,
-							Bucket:         s.storageConfig.BucketName,
-							Endpoint:       minioEndpoint,
-							ForcePathStyle: true,
 							Region:         "us-east-1",
+							Endpoint:       publicURL,
+							Bucket:         s.storageConfig.BucketName,
+							ForcePathStyle: true,
 						},
 					},
 				},
@@ -116,19 +111,19 @@ func (s *RoomService) CreateRoom(ctx context.Context, input CreateRoomInput) (*C
 		},
 	}
 
-	// Create room in LiveKit with auto-recording enabled
+	// Create room in LiveKit with egress auto-recording
 	roomInfo, err := s.livekitClient.CreateRoom(ctx, livekitRoomName, &lkpkg.CreateRoomOptions{
 		MaxParticipants:  int32(input.MaxParticipants),
 		EmptyTimeout:     300, // 5 minutes - auto-delete if no one joins
 		DepartureTimeout: 30,  // 30 seconds - auto-delete after last person leaves
-		Metadata:         fmt.Sprintf(`{"name":"%s"}`, input.Name),
+		Metadata:         fmt.Sprintf(`{"name":"%s","enable_recording":true}`, input.Name),
 		Egress:           egressConfig,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create livekit room: %w", err)
 	}
 
-	log.Printf("[Room] ✅ Room created with auto-recording enabled: %s", livekitRoomName)
+	log.Printf("[Room] ✅ Room created with egress auto-recording enabled: %s", livekitRoomName)
 
 	// Create room entity
 	room := &entities.Room{

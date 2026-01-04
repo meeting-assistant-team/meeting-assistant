@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"encoding/json"
 	"time"
 
@@ -91,72 +92,66 @@ func (r *aiRepository) GetTranscriptByRecordingID(recordingID string) (*entities
 }
 
 func (r *aiRepository) SaveMeetingSummary(s *entities.MeetingSummary) error {
-	keyPoints, _ := json.Marshal(s.KeyPoints)
-	decisions, _ := json.Marshal(s.Decisions)
-	topics, _ := json.Marshal(s.Topics)
-	openQ, _ := json.Marshal(s.OpenQuestions)
-	nextSteps, _ := json.Marshal(s.NextSteps)
-	metadata, _ := json.Marshal(map[string]interface{}{})
-
-	q := `INSERT INTO meeting_summaries (id, room_id, transcript_id, executive_summary, key_points, decisions, topics, open_questions, next_steps, overall_sentiment, sentiment_breakdown, model_used, processing_time, metadata, created_at)
-        VALUES (?, ?, ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?, '{}'::jsonb, ?, ?, ?::jsonb, ?)
-        ON CONFLICT (room_id) DO UPDATE SET executive_summary = EXCLUDED.executive_summary, key_points = EXCLUDED.key_points, decisions = EXCLUDED.decisions, topics = EXCLUDED.topics, open_questions = EXCLUDED.open_questions, next_steps = EXCLUDED.next_steps, overall_sentiment = EXCLUDED.overall_sentiment, processing_time = EXCLUDED.processing_time, updated_at = NOW()`
-
-	return r.db.Exec(q, s.ID, s.RoomID, s.TranscriptID, s.ExecutiveSummary, string(keyPoints), string(decisions), string(topics), string(openQ), string(nextSteps), s.OverallSentiment, s.ModelUsed, s.ProcessingTime, string(metadata), time.Now()).Error
+	// Store JSONB fields as []byte directly (already marshaled)
+	return r.db.Exec(`INSERT INTO meeting_summaries (
+		id, room_id, transcript_id, executive_summary, 
+		key_points, decisions, topics, open_questions, next_steps, 
+		overall_sentiment, sentiment_breakdown, 
+		total_speaking_time, participant_balance_score, engagement_score,
+		model_used, processing_time, metadata, created_at, updated_at
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	ON CONFLICT (room_id) DO UPDATE SET 
+		executive_summary = EXCLUDED.executive_summary,
+		key_points = EXCLUDED.key_points,
+		decisions = EXCLUDED.decisions,
+		topics = EXCLUDED.topics,
+		open_questions = EXCLUDED.open_questions,
+		next_steps = EXCLUDED.next_steps,
+		overall_sentiment = EXCLUDED.overall_sentiment,
+		sentiment_breakdown = EXCLUDED.sentiment_breakdown,
+		total_speaking_time = EXCLUDED.total_speaking_time,
+		participant_balance_score = EXCLUDED.participant_balance_score,
+		engagement_score = EXCLUDED.engagement_score,
+		processing_time = EXCLUDED.processing_time,
+		updated_at = NOW()`,
+		s.ID, s.RoomID, s.TranscriptID, s.ExecutiveSummary,
+		s.KeyPoints, s.Decisions, s.Topics, s.OpenQuestions, s.NextSteps,
+		s.OverallSentiment, s.SentimentBreakdown,
+		s.TotalSpeakingTime, s.ParticipantBalance, s.EngagementScore,
+		s.ModelUsed, s.ProcessingTime, s.Metadata,
+		time.Now(), time.Now(),
+	).Error
 }
 
-func (r *aiRepository) GetMeetingSummaryByRoom(roomID string) (*entities.MeetingSummary, error) {
-	row := r.db.Raw(`SELECT id, room_id, transcript_id, executive_summary, key_points::text AS key_points, decisions::text AS decisions, topics::text AS topics, open_questions::text AS open_questions, next_steps::text AS next_steps, overall_sentiment, processing_time, model_used, created_at FROM meeting_summaries WHERE room_id = ? LIMIT 1`, roomID).Row()
-	var res struct {
-		ID               string
-		RoomID           string
-		TranscriptID     string
-		ExecutiveSummary string
-		KeyPoints        string
-		Decisions        string
-		Topics           string
-		OpenQuestions    string
-		NextSteps        string
-		OverallSentiment *float64
-		ProcessingTime   *int
-		ModelUsed        string
-		CreatedAt        time.Time
-	}
-	if err := row.Scan(&res.ID, &res.RoomID, &res.TranscriptID, &res.ExecutiveSummary, &res.KeyPoints, &res.Decisions, &res.Topics, &res.OpenQuestions, &res.NextSteps, &res.OverallSentiment, &res.ProcessingTime, &res.ModelUsed, &res.CreatedAt); err != nil {
+func (r *aiRepository) GetMeetingSummaryByRoom(ctx context.Context, roomID uuid.UUID) (*entities.MeetingSummary, error) {
+	var summary entities.MeetingSummary
+	err := r.db.WithContext(ctx).
+		Where("room_id = ?", roomID).
+		First(&summary).Error
+
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, nil
+		}
 		return nil, err
 	}
 
-	var keyPoints []string
-	var decisions []map[string]string
-	var topics []string
-	var openQ []string
-	var next []string
-	_ = json.Unmarshal([]byte(res.KeyPoints), &keyPoints)
-	_ = json.Unmarshal([]byte(res.Decisions), &decisions)
-	_ = json.Unmarshal([]byte(res.Topics), &topics)
-	_ = json.Unmarshal([]byte(res.OpenQuestions), &openQ)
-	_ = json.Unmarshal([]byte(res.NextSteps), &next)
+	return &summary, nil
+}
 
-	ms := &entities.MeetingSummary{
-		ID:               res.ID,
-		RoomID:           res.RoomID,
-		TranscriptID:     res.TranscriptID,
-		ExecutiveSummary: res.ExecutiveSummary,
-		KeyPoints:        keyPoints,
-		Decisions:        decisions,
-		Topics:           topics,
-		OpenQuestions:    openQ,
-		NextSteps:        next,
-		ModelUsed:        res.ModelUsed,
-		CreatedAt:        res.CreatedAt,
+// GetActionItemsBySummary retrieves all action items for a specific summary
+func (r *aiRepository) GetActionItemsBySummary(ctx context.Context, summaryID uuid.UUID) ([]entities.ActionItem, error) {
+	var items []entities.ActionItem
+	err := r.db.WithContext(ctx).
+		Where("summary_id = ?", summaryID).
+		Order("created_at ASC").
+		Find(&items).Error
+
+	if err != nil {
+		return nil, err
 	}
-	if res.OverallSentiment != nil {
-		ms.OverallSentiment = *res.OverallSentiment
-	}
-	if res.ProcessingTime != nil {
-		ms.ProcessingTime = *res.ProcessingTime
-	}
-	return ms, nil
+
+	return items, nil
 }
 
 func (r *aiRepository) SaveActionItems(items []*entities.ActionItem) error {

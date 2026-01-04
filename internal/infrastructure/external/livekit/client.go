@@ -26,7 +26,7 @@ type CreateRoomOptions struct {
 	EmptyTimeout     int32 // seconds - auto-delete if no one joins
 	DepartureTimeout int32 // seconds - auto-delete after last participant leaves
 	Metadata         string
-	Egress           *livekit.RoomEgress // Auto-recording configuration
+	Egress           *livekit.RoomEgress // Egress configuration for auto-recording
 }
 
 // TokenOptions holds options for generating access token

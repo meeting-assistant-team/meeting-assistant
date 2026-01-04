@@ -145,8 +145,47 @@ func (r *AIJobRepository) MarkJobAsCompleted(ctx context.Context, jobID uuid.UUI
 }
 
 // MarkJobAsFailed marks a job as failed with error message
+// Increments retry_count and sets appropriate retry status based on current job stage:
+// - If job is 'summarizing' → retry to 'transcript_ready' (so summary worker picks it up)
+// - Otherwise → retry to 'pending' (for AssemblyAI submission retry)
+// If retry_count >= max_retries, marks as permanently failed
 func (r *AIJobRepository) MarkJobAsFailed(ctx context.Context, jobID uuid.UUID, errMsg string) error {
 	now := time.Now()
+
+	// First, get current job status to determine correct retry status
+	var currentJob entities.AIJob
+	if err := r.db.WithContext(ctx).Where("id = ?", jobID).First(&currentJob).Error; err != nil {
+		return err
+	}
+
+	// Determine retry status based on current job stage
+	retryStatus := entities.AIJobStatusPending // default: retry AssemblyAI submission
+	if currentJob.Status == entities.AIJobStatusSummarizing {
+		// If Groq/summary failed, retry back to transcript_ready
+		retryStatus = entities.AIJobStatusTranscriptReady
+	}
+
+	// Try to increment retry count if retries available (atomic operation)
+	result := r.db.WithContext(ctx).
+		Model(&entities.AIJob{}).
+		Where("id = ? AND retry_count < max_retries", jobID).
+		Updates(map[string]interface{}{
+			"retry_count": gorm.Expr("retry_count + 1"),
+			"status":      retryStatus,
+			"last_error":  errMsg,
+			"updated_at":  now,
+		})
+
+	if result.Error != nil {
+		return result.Error
+	}
+
+	// If update affected 1 row, job was marked for retry
+	if result.RowsAffected > 0 {
+		return nil
+	}
+
+	// No rows affected means retry_count >= max_retries, mark as permanently failed
 	return r.db.WithContext(ctx).
 		Model(&entities.AIJob{}).
 		Where("id = ?", jobID).
@@ -157,7 +196,7 @@ func (r *AIJobRepository) MarkJobAsFailed(ctx context.Context, jobID uuid.UUID, 
 		}).Error
 }
 
-// IncrementRetryCount increments the retry count
+// IncrementRetryCount increments the retry count and keeps status as pending
 func (r *AIJobRepository) IncrementRetryCount(ctx context.Context, jobID uuid.UUID, errMsg string) error {
 	now := time.Now()
 	return r.db.WithContext(ctx).
@@ -165,7 +204,7 @@ func (r *AIJobRepository) IncrementRetryCount(ctx context.Context, jobID uuid.UU
 		Where("id = ?", jobID).
 		Updates(map[string]interface{}{
 			"retry_count": gorm.Expr("retry_count + 1"),
-			"status":      entities.AIJobStatusRetrying,
+			"status":      entities.AIJobStatusPending,
 			"last_error":  errMsg,
 			"updated_at":  now,
 		}).Error
@@ -199,9 +238,22 @@ func (r *AIJobRepository) GetJobsForProcessing(ctx context.Context, limit int) (
 		limit = 10
 	}
 	if err := r.db.WithContext(ctx).
-		Where("status IN ?", []entities.AIJobStatus{entities.AIJobStatusPending, entities.AIJobStatusRetrying}).
+		Where("status = ?", entities.AIJobStatusPending).
 		Order("created_at ASC").
 		Limit(limit).
+		Find(&jobs).Error; err != nil {
+		return nil, err
+	}
+	return jobs, nil
+}
+
+// GetJobsByStatus retrieves jobs with a specific status
+func (r *AIJobRepository) GetJobsByStatus(ctx context.Context, status entities.AIJobStatus) ([]entities.AIJob, error) {
+	var jobs []entities.AIJob
+	if err := r.db.WithContext(ctx).
+		Where("status = ?", status).
+		Order("created_at ASC").
+		Limit(10). // Limit to prevent overwhelming
 		Find(&jobs).Error; err != nil {
 		return nil, err
 	}
@@ -222,4 +274,9 @@ func (r *AIJobRepository) GetJobsWithoutExternalID(ctx context.Context, limit in
 		return nil, err
 	}
 	return jobs, nil
+}
+
+// GetDB exposes the underlying database connection for advanced queries
+func (r *AIJobRepository) GetDB() *gorm.DB {
+	return r.db
 }
