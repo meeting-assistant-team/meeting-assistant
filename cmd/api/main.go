@@ -116,6 +116,7 @@ func main() {
 	aiJobRepo := repository.NewAIJobRepository(db)
 	transcriptRepo := repository.NewTranscriptRepository(db)
 	recordingRepo := repository.NewRecordingRepository(db)
+	aiRepo := repository.NewAIRepository(db)
 
 	// Initialize AI repository and clients
 	log.Println("🤖 Initializing AI components...")
@@ -126,7 +127,7 @@ func main() {
 		log.Fatalf("Failed to initialize logger: %v", err)
 	}
 	defer logger.Sync()
-	aiService := aiuse.NewAIService(aiJobRepo, transcriptRepo, asmClient, groqClient, cfg, logger)
+	aiService := aiuse.NewAIService(aiJobRepo, transcriptRepo, aiRepo, recordingRepo, roomRepo, asmClient, groqClient, cfg, logger)
 	aiController := handler.NewAIController(aiService, logger)
 	aiWebhookHandler := handler.NewAIWebhookHandler(aiService, cfg.Assembly.WebhookSecret, logger)
 
@@ -186,7 +187,7 @@ func main() {
 
 	// Initialize room handler
 	log.Println("🚪 Initializing room handler...")
-	roomHandler := handler.NewRoomHandler(roomService, logger)
+	roomHandler := handler.NewRoomHandler(roomService, aiJobRepo, aiRepo, logger)
 	log.Println("✅ Room handler initialized successfully")
 
 	// Initialize MinIO client for generating presigned URLs
@@ -201,7 +202,7 @@ func main() {
 
 	// Initialize webhook handler (for LiveKit webhooks)
 	log.Println("🪝 Initializing webhook handler...")
-	webhookHandler := handler.NewWebhookHandler(roomService, aiService, minioClient, recordingRepo, cfg.LiveKit.APIKey, cfg.LiveKit.APISecret, logger)
+	webhookHandler := handler.NewWebhookHandler(roomService, aiService, minioClient, recordingRepo, aiJobRepo, cfg.LiveKit.APIKey, cfg.LiveKit.APISecret, logger)
 	log.Println("✅ Webhook handler initialized successfully")
 
 	// Initialize storage test handler
@@ -223,6 +224,13 @@ func main() {
 	router := handler.NewRouter(cfg, authHandler, roomHandler, webhookHandler, aiWebhookHandler, aiController, storageTestHandler, authEchoMW)
 	router.Setup(e)
 
+	// Start AI worker pool for background summary generation
+	log.Println("🔄 Starting AI worker pool for summary generation...")
+	// Create cancellable context for workers
+	workerCtx, cancelWorkers := context.WithCancel(context.Background())
+	aiService.StartWorkerPool(workerCtx, 3) // Start 3 workers
+	log.Println("✅ AI worker pool started with 3 workers")
+
 	// Start server
 	go func() {
 		addr := fmt.Sprintf("%s:%s", cfg.Server.Host, cfg.Server.Port)
@@ -241,6 +249,14 @@ func main() {
 	<-quit
 
 	log.Println("🛑 Shutting down server...")
+
+	// Cancel worker context to signal workers to stop
+	cancelWorkers()
+
+	// Stop AI worker pool
+	log.Println("🛑 Stopping AI worker pool...")
+	aiService.StopWorkerPool()
+	log.Println("✅ AI worker pool stopped")
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.Server.ShutdownTimeout)*time.Second)
 	defer cancel()
