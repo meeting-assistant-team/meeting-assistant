@@ -83,12 +83,12 @@ type StorageConfig struct {
 
 // LiveKitConfig holds LiveKit configuration
 type LiveKitConfig struct {
-	URL           string `envconfig:"LIVEKIT_URL" default:"ws://localhost:7880"`
-	APIKey        string `envconfig:"LIVEKIT_API_KEY" default:"devkey"`
-	APISecret     string `envconfig:"LIVEKIT_API_SECRET" default:"secret"`
-	WebhookSecret string `envconfig:"LIVEKIT_WEBHOOK_SECRET"`           // Secret for validating webhooks from LiveKit
-	WebhookURL    string `envconfig:"LIVEKIT_WEBHOOK_URL"`              // Webhook URL for LiveKit to call back (must be publicly accessible)
-	UseMock       bool   `envconfig:"LIVEKIT_USE_MOCK" default:"false"` // Use mock mode for testing without real LiveKit server
+	URL       string `envconfig:"LIVEKIT_URL" default:"ws://localhost:7880"`
+	APIKey    string `envconfig:"LIVEKIT_API_KEY"`
+	APISecret string `envconfig:"LIVEKIT_API_SECRET"`
+	//WebhookSecret string `envconfig:"LIVEKIT_WEBHOOK_SECRET"`           // Secret for validating webhooks from LiveKit
+	WebhookURL string `envconfig:"LIVEKIT_WEBHOOK_URL"`              // Webhook URL for LiveKit to call back (must be publicly accessible)
+	UseMock    bool   `envconfig:"LIVEKIT_USE_MOCK" default:"false"` // Use mock mode for testing without real LiveKit server
 }
 
 // AssemblyAIConfig holds AssemblyAI related configuration

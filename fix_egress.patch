@@ -1,0 +1,18 @@
+--- a/internal/usecase/room/room_service.go
++++ b/internal/usecase/room/room_service.go
+@@ -90,7 +90,7 @@ func (s *RoomService) CreateRoom(ctx context.Context, input *CreateRoomInput) (
+ 	}
+ 
+ 	egressConfig := &livekit.RoomEgress{
+-		Room: &livekit.RoomEgress_RoomComposite{
+-			RoomComposite: &livekit.RoomCompositeEgressRequest{
++		Room: &livekit.RoomCompositeEgressRequest{
+ 			RoomName:  livekitRoomName,
+ 			AudioOnly: true,
+@@ -110,7 +110,6 @@ func (s *RoomService) CreateRoom(ctx context.Context, input *CreateRoomInput) (
+ 				},
+ 			},
+-		},
+ 	}
+ 
+ 	// Create room in LiveKit with egress auto-recording
