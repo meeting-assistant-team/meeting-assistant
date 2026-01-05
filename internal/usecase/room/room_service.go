@@ -297,7 +297,44 @@ func (s *RoomService) JoinRoom(ctx context.Context, input JoinRoomInput) (*entit
 		return nil, nil, fmt.Errorf("failed to get participant: %w", err)
 	}
 
-	if participant == nil {
+	// If participant exists, check if they are blocked or removed
+	if participant != nil {
+		// Check if user is blocked (denied status) or has been removed
+		if participant.Status == entities.ParticipantStatusDenied || participant.IsRemoved {
+			return nil, nil, fmt.Errorf("you have been blocked from this room")
+		}
+
+		// Check if user was removed (without being blocked)
+		if participant.Status == entities.ParticipantStatusRemoved {
+			return nil, nil, fmt.Errorf("you have been removed from this room")
+		}
+
+		// If participant already joined, return error
+		if participant.Status == entities.ParticipantStatusJoined {
+			return nil, nil, usecaseErrors.ErrAlreadyInRoom
+		}
+
+		// Allow rejoin only for: left, invited, or waiting status
+		if participant.Status == entities.ParticipantStatusLeft ||
+			participant.Status == entities.ParticipantStatusInvited ||
+			participant.Status == entities.ParticipantStatusWaiting {
+			// Update status based on role and room type
+			if room.HostID == input.UserID {
+				// Host can join immediately
+				participant.Status = entities.ParticipantStatusJoined
+			} else {
+				// Regular users go to waiting room (will be updated by authorization check)
+				participant.Status = entities.ParticipantStatusWaiting
+			}
+			if err := s.participantRepo.Update(ctx, participant); err != nil {
+				return nil, nil, fmt.Errorf("failed to update participant: %w", err)
+			}
+		} else {
+			// Invalid status for rejoining
+			return nil, nil, fmt.Errorf("cannot rejoin room with current status: %s", participant.Status)
+		}
+	} else {
+		// Create new participant
 		participantRole := entities.ParticipantRoleParticipant
 		participantStatus := entities.ParticipantStatusWaiting
 		if room.HostID == input.UserID {
@@ -313,14 +350,6 @@ func (s *RoomService) JoinRoom(ctx context.Context, input JoinRoomInput) (*entit
 		}
 		if err := s.participantRepo.Create(ctx, participant); err != nil {
 			return nil, nil, fmt.Errorf("failed to create participant: %w", err)
-		}
-	} else {
-		// Nếu đã có participant, chỉ host mới được chuyển sang joined khi join lại
-		if room.HostID == input.UserID && participant.Status != entities.ParticipantStatusJoined {
-			participant.Status = entities.ParticipantStatusJoined
-			if err := s.participantRepo.Update(ctx, participant); err != nil {
-				return nil, nil, fmt.Errorf("failed to update participant: %w", err)
-			}
 		}
 	}
 
@@ -599,6 +628,8 @@ func (s *RoomService) AdmitParticipant(ctx context.Context, roomID, hostID, part
 }
 
 // DenyParticipant denies a waiting participant from joining the room
+// This is a soft rejection - the participant record is deleted so the user can try to join again
+// For permanent blocking, use BlockParticipant instead
 func (s *RoomService) DenyParticipant(ctx context.Context, roomID, hostID, participantID uuid.UUID, reason string) error {
 	// Verify room exists
 	room, err := s.roomRepo.FindByID(ctx, roomID)
@@ -627,12 +658,94 @@ func (s *RoomService) DenyParticipant(ctx context.Context, roomID, hostID, parti
 		return usecaseErrors.ErrInvalidParticipantStatus
 	}
 
-	// Update status to denied
-	if err := s.participantRepo.UpdateStatus(ctx, participantID, entities.ParticipantStatusDenied); err != nil {
+	// Delete the participant record instead of marking as denied
+	// This allows the user to try joining again later
+	if err := s.participantRepo.Delete(ctx, participantID); err != nil {
 		return fmt.Errorf("failed to deny participant: %w", err)
 	}
 
 	return nil
+}
+
+// BlockParticipant permanently blocks a participant from joining the room
+// Unlike DenyParticipant, this creates a permanent block record
+func (s *RoomService) BlockParticipant(ctx context.Context, roomID, hostID, participantID uuid.UUID, reason string) error {
+	// Verify room exists
+	room, err := s.roomRepo.FindByID(ctx, roomID)
+	if err != nil {
+		return usecaseErrors.ErrRoomNotFound
+	}
+
+	// Check if room has ended
+	if room.IsEnded() {
+		return usecaseErrors.ErrRoomEnded
+	}
+
+	// Verify user is the host
+	if room.HostID != hostID {
+		return usecaseErrors.ErrNotHost
+	}
+
+	// Get participant
+	participant, err := s.participantRepo.FindByID(ctx, participantID)
+	if err != nil {
+		return usecaseErrors.ErrParticipantNotFound
+	}
+
+	// Cannot block the host
+	if participant.UserID != nil && *participant.UserID == room.HostID {
+		return fmt.Errorf("cannot block the host")
+	}
+
+	// Set status to denied (permanent block)
+	// Also mark as removed with reason
+	removalReason := "Blocked by host"
+	if reason != "" {
+		removalReason = fmt.Sprintf("Blocked: %s", reason)
+	}
+	participant.Status = entities.ParticipantStatusDenied
+	participant.IsRemoved = true
+	participant.RemovedBy = &hostID
+	participant.RemovalReason = &removalReason
+
+	if err := s.participantRepo.Update(ctx, participant); err != nil {
+		return fmt.Errorf("failed to block participant: %w", err)
+	}
+
+	return nil
+}
+
+// GetMyParticipantStatus gets the current user's participant status in a room
+// This is used for polling - user checks their status and gets token if admitted
+func (s *RoomService) GetMyParticipantStatus(ctx context.Context, roomID, userID uuid.UUID) (*entities.Room, *entities.Participant, string, error) {
+	// Get room
+	room, err := s.roomRepo.FindByID(ctx, roomID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil, "", usecaseErrors.ErrRoomNotFound
+		}
+		return nil, nil, "", fmt.Errorf("failed to get room: %w", err)
+	}
+
+	// Get participant record
+	participant, err := s.participantRepo.FindByRoomAndUser(ctx, roomID, userID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil, "", usecaseErrors.ErrParticipantNotFound
+		}
+		return nil, nil, "", fmt.Errorf("failed to get participant: %w", err)
+	}
+
+	// If participant is joined, generate token
+	var token string
+	if participant.Status == entities.ParticipantStatusJoined {
+		token, err = s.GenerateParticipantToken(ctx, room, participant)
+		if err != nil {
+			return nil, nil, "", fmt.Errorf("failed to generate token: %w", err)
+		}
+	}
+
+	return room, participant, token, nil
 }
 
 // RemoveParticipant removes a participant from a room (host only)

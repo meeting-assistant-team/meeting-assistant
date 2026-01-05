@@ -24,79 +24,6 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
-        "/ai/meetings/{id}/process": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Manually triggers AI processing (transcription and analysis) for a meeting recording",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "AI"
-                ],
-                "summary": "Process meeting recording",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Meeting ID (UUID)",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Recording URL for processing",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "type": "object",
-                            "properties": {
-                                "recording_url": {
-                                    "type": "string"
-                                }
-                            }
-                        }
-                    }
-                ],
-                "responses": {
-                    "202": {
-                        "description": "Processing started",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "400": {
-                        "description": "Missing recording_url or invalid meeting ID",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "401": {
-                        "description": "User not authenticated",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "500": {
-                        "description": "Failed to start processing",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    }
-                }
-            }
-        },
         "/auth/google/callback": {
             "get": {
                 "description": "Processes the OAuth callback from Google and sets a HttpOnly session cookie. Redirects to frontend callback URL configured in FrontendURL setting.",
@@ -374,6 +301,147 @@ const docTemplate = `{
                     },
                     "500": {
                         "description": "Failed to get invitations",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/meetings/{id}/process-ai": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Manually triggers AI processing (transcription and analysis) for a meeting recording\n\n**Use cases:**\n- Testing AI pipeline without recording a live meeting\n- Reprocessing a meeting with updated AI prompts\n- Recovery when automatic processing failed\n- Host requesting re-analysis with custom parameters (future enhancement)\n\n**Note:** In production, AI processing is automatically triggered when a meeting ends via LiveKit webhook.\nThis endpoint is primarily for manual intervention, testing, and future custom processing features.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "AI"
+                ],
+                "summary": "Manually trigger AI processing",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Meeting ID (UUID)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Recording URL for processing",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "recording_url": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Processing started successfully",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Missing recording_url or invalid meeting ID",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "User not authenticated",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Failed to start processing",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/meetings/{id}/summary": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Retrieves the comprehensive AI-generated meeting summary with analysis\n\n**Response includes:**\n- Executive summary (2-3 sentence overview)\n- Key points with timestamps and importance levels\n- Decisions made with owners and impact assessment\n- Topics discussed (main themes ordered by importance)\n- Key questions raised (important questions including unanswered ones)\n- Chapters \u0026 Topics (auto-generated meeting sections from AssemblyAI)\n- Action items with assignments, priorities, and due dates\n- Sentiment analysis (overall and per-speaker breakdown)\n- Engagement metrics (speaking time, participation balance)\n\n**Status codes:**\n- 200: Summary available and returned\n- 202: Summary is being generated (check back later)\n- 404: Meeting not found or no recording available",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Meetings"
+                ],
+                "summary": "Get meeting AI summary",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Meeting/Room ID (UUID)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Meeting summary retrieved successfully",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto.MeetingSummaryResponse"
+                        }
+                    },
+                    "202": {
+                        "description": "Summary is being generated",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto.SummaryStatusResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid room ID format",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "User not authenticated",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Meeting not found or no transcript available",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Failed to retrieve summary",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -1146,6 +1214,68 @@ const docTemplate = `{
                 }
             }
         },
+        "/rooms/{id}/participants/me/status": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Allows users to check their participant status and receive token when admitted\nThis is used for polling while waiting in the waiting room",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Participants"
+                ],
+                "summary": "Get my participant status (polling endpoint)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Room ID (UUID)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Current participant status",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.ParticipantStatusResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid room ID",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "User not authenticated",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Participant record not found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Failed to get status",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/rooms/{id}/participants/waiting": {
             "get": {
                 "security": [
@@ -1359,6 +1489,84 @@ const docTemplate = `{
                 }
             }
         },
+        "/rooms/{id}/participants/{pid}/block": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Permanently blocks a participant from joining the room (hard block - user cannot join again)\nNote: This is different from deny - blocked users cannot request to join again",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Rooms"
+                ],
+                "summary": "Block participant permanently",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Room ID (UUID)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Participant ID (UUID)",
+                        "name": "pid",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Block reason (optional)",
+                        "name": "request",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.DenyParticipantRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Participant blocked permanently",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid room or participant ID",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "User not authenticated",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "User is not the host",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Failed to block participant",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/rooms/{id}/participants/{pid}/deny": {
             "post": {
                 "security": [
@@ -1366,7 +1574,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Denies a waiting participant from joining the room (host only)",
+                "description": "Denies a waiting participant from joining the room (soft rejection - user can try joining again)\nNote: This removes the waiting request. For permanent blocking, use the block endpoint instead.",
                 "produces": [
                     "application/json"
                 ],
@@ -1392,7 +1600,7 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "Participant denied successfully",
+                        "description": "Participant denied successfully (can request to join again)",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -1644,6 +1852,208 @@ const docTemplate = `{
         }
     },
     "definitions": {
+        "github_com_johnquangdev_meeting-assistant_internal_adapter_dto.ActionItemDTO": {
+            "type": "object",
+            "properties": {
+                "assigned_to": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "due_date": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "priority": {
+                    "description": "low, medium, high, urgent",
+                    "type": "string"
+                },
+                "status": {
+                    "description": "pending, in_progress, completed, cancelled",
+                    "type": "string"
+                },
+                "timestamp_in_meeting": {
+                    "type": "integer"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "transcript_reference": {
+                    "type": "string"
+                },
+                "type": {
+                    "description": "action, decision, question, follow_up",
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_johnquangdev_meeting-assistant_internal_adapter_dto.Chapter": {
+            "type": "object",
+            "properties": {
+                "end": {
+                    "description": "End time in milliseconds",
+                    "type": "number"
+                },
+                "gist": {
+                    "type": "string"
+                },
+                "headline": {
+                    "type": "string"
+                },
+                "start": {
+                    "description": "Start time in milliseconds",
+                    "type": "number"
+                },
+                "summary": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_johnquangdev_meeting-assistant_internal_adapter_dto.Decision": {
+            "type": "object",
+            "properties": {
+                "decision_text": {
+                    "type": "string"
+                },
+                "impact": {
+                    "description": "high, medium, low",
+                    "type": "string"
+                },
+                "owner": {
+                    "type": "string"
+                },
+                "timestamp_seconds": {
+                    "type": "integer"
+                }
+            }
+        },
+        "github_com_johnquangdev_meeting-assistant_internal_adapter_dto.EngagementMetricsDTO": {
+            "type": "object",
+            "properties": {
+                "engagement_score": {
+                    "description": "0-1",
+                    "type": "number"
+                },
+                "participant_balance_score": {
+                    "description": "0-1",
+                    "type": "number"
+                },
+                "total_speaking_time_seconds": {
+                    "type": "integer"
+                }
+            }
+        },
+        "github_com_johnquangdev_meeting-assistant_internal_adapter_dto.KeyPoint": {
+            "type": "object",
+            "properties": {
+                "importance": {
+                    "description": "high, medium, low",
+                    "type": "string"
+                },
+                "mentioned_by": {
+                    "type": "string"
+                },
+                "text": {
+                    "type": "string"
+                },
+                "timestamp_seconds": {
+                    "type": "integer"
+                }
+            }
+        },
+        "github_com_johnquangdev_meeting-assistant_internal_adapter_dto.MeetingSummaryResponse": {
+            "type": "object",
+            "properties": {
+                "action_items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto.ActionItemDTO"
+                    }
+                },
+                "chapters": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto.Chapter"
+                    }
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "decisions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto.Decision"
+                    }
+                },
+                "engagement_metrics": {
+                    "$ref": "#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto.EngagementMetricsDTO"
+                },
+                "executive_summary": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "key_points": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto.KeyPoint"
+                    }
+                },
+                "key_questions": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "room_id": {
+                    "type": "string"
+                },
+                "sentiment_breakdown": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "topics": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "transcript_id": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_johnquangdev_meeting-assistant_internal_adapter_dto.SummaryStatusResponse": {
+            "type": "object",
+            "properties": {
+                "job_id": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "room_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "description": "pending, transcript_ready, summarizing, completed, failed",
+                    "type": "string"
+                },
+                "submitted_at": {
+                    "type": "string"
+                }
+            }
+        },
         "github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.UserResponse": {
             "type": "object",
             "properties": {
@@ -1745,6 +2155,14 @@ const docTemplate = `{
                         "private",
                         "scheduled"
                     ]
+                }
+            }
+        },
+        "github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.DenyParticipantRequest": {
+            "type": "object",
+            "properties": {
+                "reason": {
+                    "type": "string"
                 }
             }
         },
@@ -1927,6 +2345,43 @@ const docTemplate = `{
                     "$ref": "#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.UserResponse"
                 },
                 "user_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.ParticipantStatusResponse": {
+            "type": "object",
+            "properties": {
+                "livekit_token": {
+                    "description": "Only when status is \"joined\"",
+                    "type": "string"
+                },
+                "livekit_url": {
+                    "description": "Only when status is \"joined\"",
+                    "type": "string"
+                },
+                "message": {
+                    "description": "User-friendly message",
+                    "type": "string"
+                },
+                "participant": {
+                    "description": "Current user's participant record",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.ParticipantResponse"
+                        }
+                    ]
+                },
+                "room": {
+                    "description": "Room information",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.RoomResponse"
+                        }
+                    ]
+                },
+                "status": {
+                    "description": "\"waiting\", \"joined\", \"denied\", etc.",
                     "type": "string"
                 }
             }

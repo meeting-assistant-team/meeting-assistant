@@ -1,5 +1,141 @@
 basePath: /v1
 definitions:
+  github_com_johnquangdev_meeting-assistant_internal_adapter_dto.ActionItemDTO:
+    properties:
+      assigned_to:
+        type: string
+      created_at:
+        type: string
+      description:
+        type: string
+      due_date:
+        type: string
+      id:
+        type: string
+      priority:
+        description: low, medium, high, urgent
+        type: string
+      status:
+        description: pending, in_progress, completed, cancelled
+        type: string
+      timestamp_in_meeting:
+        type: integer
+      title:
+        type: string
+      transcript_reference:
+        type: string
+      type:
+        description: action, decision, question, follow_up
+        type: string
+    type: object
+  github_com_johnquangdev_meeting-assistant_internal_adapter_dto.Chapter:
+    properties:
+      end:
+        description: End time in milliseconds
+        type: number
+      gist:
+        type: string
+      headline:
+        type: string
+      start:
+        description: Start time in milliseconds
+        type: number
+      summary:
+        type: string
+    type: object
+  github_com_johnquangdev_meeting-assistant_internal_adapter_dto.Decision:
+    properties:
+      decision_text:
+        type: string
+      impact:
+        description: high, medium, low
+        type: string
+      owner:
+        type: string
+      timestamp_seconds:
+        type: integer
+    type: object
+  github_com_johnquangdev_meeting-assistant_internal_adapter_dto.EngagementMetricsDTO:
+    properties:
+      engagement_score:
+        description: 0-1
+        type: number
+      participant_balance_score:
+        description: 0-1
+        type: number
+      total_speaking_time_seconds:
+        type: integer
+    type: object
+  github_com_johnquangdev_meeting-assistant_internal_adapter_dto.KeyPoint:
+    properties:
+      importance:
+        description: high, medium, low
+        type: string
+      mentioned_by:
+        type: string
+      text:
+        type: string
+      timestamp_seconds:
+        type: integer
+    type: object
+  github_com_johnquangdev_meeting-assistant_internal_adapter_dto.MeetingSummaryResponse:
+    properties:
+      action_items:
+        items:
+          $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto.ActionItemDTO'
+        type: array
+      chapters:
+        items:
+          $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto.Chapter'
+        type: array
+      created_at:
+        type: string
+      decisions:
+        items:
+          $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto.Decision'
+        type: array
+      engagement_metrics:
+        $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto.EngagementMetricsDTO'
+      executive_summary:
+        type: string
+      id:
+        type: string
+      key_points:
+        items:
+          $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto.KeyPoint'
+        type: array
+      key_questions:
+        items:
+          type: string
+        type: array
+      room_id:
+        type: string
+      sentiment_breakdown:
+        additionalProperties: true
+        type: object
+      topics:
+        items:
+          type: string
+        type: array
+      transcript_id:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  github_com_johnquangdev_meeting-assistant_internal_adapter_dto.SummaryStatusResponse:
+    properties:
+      job_id:
+        type: string
+      message:
+        type: string
+      room_id:
+        type: string
+      status:
+        description: pending, transcript_ready, summarizing, completed, failed
+        type: string
+      submitted_at:
+        type: string
+    type: object
   github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.UserResponse:
     properties:
       avatar_url:
@@ -71,6 +207,11 @@ definitions:
     - max_participants
     - name
     - type
+    type: object
+  github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.DenyParticipantRequest:
+    properties:
+      reason:
+        type: string
     type: object
   github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.InvitationItem:
     properties:
@@ -191,6 +332,29 @@ definitions:
       user_id:
         type: string
     type: object
+  github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.ParticipantStatusResponse:
+    properties:
+      livekit_token:
+        description: Only when status is "joined"
+        type: string
+      livekit_url:
+        description: Only when status is "joined"
+        type: string
+      message:
+        description: User-friendly message
+        type: string
+      participant:
+        allOf:
+        - $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.ParticipantResponse'
+        description: Current user's participant record
+      room:
+        allOf:
+        - $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.RoomResponse'
+        description: Room information
+      status:
+        description: '"waiting", "joined", "denied", etc.'
+        type: string
+    type: object
   github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.RemoveParticipantRequest:
     properties:
       reason:
@@ -279,55 +443,6 @@ info:
   title: Meeting Assistant API
   version: "1.0"
 paths:
-  /ai/meetings/{id}/process:
-    post:
-      consumes:
-      - application/json
-      description: Manually triggers AI processing (transcription and analysis) for
-        a meeting recording
-      parameters:
-      - description: Meeting ID (UUID)
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Recording URL for processing
-        in: body
-        name: request
-        required: true
-        schema:
-          properties:
-            recording_url:
-              type: string
-          type: object
-      produces:
-      - application/json
-      responses:
-        "202":
-          description: Processing started
-          schema:
-            additionalProperties: true
-            type: object
-        "400":
-          description: Missing recording_url or invalid meeting ID
-          schema:
-            additionalProperties: true
-            type: object
-        "401":
-          description: User not authenticated
-          schema:
-            additionalProperties: true
-            type: object
-        "500":
-          description: Failed to start processing
-          schema:
-            additionalProperties: true
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Process meeting recording
-      tags:
-      - AI
   /auth/google/callback:
     get:
       description: Processes the OAuth callback from Google and sets a HttpOnly session
@@ -522,6 +637,126 @@ paths:
       summary: Get my invitations
       tags:
       - Invitations
+  /meetings/{id}/process-ai:
+    post:
+      consumes:
+      - application/json
+      description: |-
+        Manually triggers AI processing (transcription and analysis) for a meeting recording
+
+        **Use cases:**
+        - Testing AI pipeline without recording a live meeting
+        - Reprocessing a meeting with updated AI prompts
+        - Recovery when automatic processing failed
+        - Host requesting re-analysis with custom parameters (future enhancement)
+
+        **Note:** In production, AI processing is automatically triggered when a meeting ends via LiveKit webhook.
+        This endpoint is primarily for manual intervention, testing, and future custom processing features.
+      parameters:
+      - description: Meeting ID (UUID)
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Recording URL for processing
+        in: body
+        name: request
+        required: true
+        schema:
+          properties:
+            recording_url:
+              type: string
+          type: object
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Processing started successfully
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Missing recording_url or invalid meeting ID
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: User not authenticated
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Failed to start processing
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Manually trigger AI processing
+      tags:
+      - AI
+  /meetings/{id}/summary:
+    get:
+      description: |-
+        Retrieves the comprehensive AI-generated meeting summary with analysis
+
+        **Response includes:**
+        - Executive summary (2-3 sentence overview)
+        - Key points with timestamps and importance levels
+        - Decisions made with owners and impact assessment
+        - Topics discussed (main themes ordered by importance)
+        - Key questions raised (important questions including unanswered ones)
+        - Chapters & Topics (auto-generated meeting sections from AssemblyAI)
+        - Action items with assignments, priorities, and due dates
+        - Sentiment analysis (overall and per-speaker breakdown)
+        - Engagement metrics (speaking time, participation balance)
+
+        **Status codes:**
+        - 200: Summary available and returned
+        - 202: Summary is being generated (check back later)
+        - 404: Meeting not found or no recording available
+      parameters:
+      - description: Meeting/Room ID (UUID)
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Meeting summary retrieved successfully
+          schema:
+            $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto.MeetingSummaryResponse'
+        "202":
+          description: Summary is being generated
+          schema:
+            $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto.SummaryStatusResponse'
+        "400":
+          description: Invalid room ID format
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: User not authenticated
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Meeting not found or no transcript available
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Failed to retrieve summary
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get meeting AI summary
+      tags:
+      - Meetings
   /rooms:
     get:
       description: Gets a paginated list of rooms with optional filters
@@ -1092,9 +1327,65 @@ paths:
       summary: Admit participant
       tags:
       - Participants
+  /rooms/{id}/participants/{pid}/block:
+    post:
+      description: |-
+        Permanently blocks a participant from joining the room (hard block - user cannot join again)
+        Note: This is different from deny - blocked users cannot request to join again
+      parameters:
+      - description: Room ID (UUID)
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Participant ID (UUID)
+        in: path
+        name: pid
+        required: true
+        type: string
+      - description: Block reason (optional)
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.DenyParticipantRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Participant blocked permanently
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid room or participant ID
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: User not authenticated
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: User is not the host
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Failed to block participant
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Block participant permanently
+      tags:
+      - Rooms
   /rooms/{id}/participants/{pid}/deny:
     post:
-      description: Denies a waiting participant from joining the room (host only)
+      description: |-
+        Denies a waiting participant from joining the room (soft rejection - user can try joining again)
+        Note: This removes the waiting request. For permanent blocking, use the block endpoint instead.
       parameters:
       - description: Room ID (UUID)
         in: path
@@ -1110,7 +1401,7 @@ paths:
       - application/json
       responses:
         "200":
-          description: Participant denied successfully
+          description: Participant denied successfully (can request to join again)
           schema:
             additionalProperties: true
             type: object
@@ -1176,6 +1467,49 @@ paths:
       summary: Leave a room
       tags:
       - Rooms
+  /rooms/{id}/participants/me/status:
+    get:
+      description: |-
+        Allows users to check their participant status and receive token when admitted
+        This is used for polling while waiting in the waiting room
+      parameters:
+      - description: Room ID (UUID)
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Current participant status
+          schema:
+            $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.ParticipantStatusResponse'
+        "400":
+          description: Invalid room ID
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: User not authenticated
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Participant record not found
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Failed to get status
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get my participant status (polling endpoint)
+      tags:
+      - Participants
   /rooms/{id}/participants/waiting:
     get:
       description: Gets a list of participants waiting for approval in a room (host

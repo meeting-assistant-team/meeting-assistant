@@ -489,13 +489,14 @@ func (h *Room) AdmitParticipant(c echo.Context) error {
 
 // DenyParticipant handles POST /rooms/:id/participants/:pid/deny
 // @Summary      Deny participant
-// @Description  Denies a waiting participant from joining the room (host only)
+// @Description  Denies a waiting participant from joining the room (soft rejection - user can try joining again)
+// @Description  Note: This removes the waiting request. For permanent blocking, use the block endpoint instead.
 // @Tags         Rooms
 // @Produce      json
 // @Security     BearerAuth
 // @Param        id   path      string  true  "Room ID (UUID)"
 // @Param        pid  path      string  true  "Participant ID (UUID)"
-// @Success      200  {object}  map[string]interface{}  "Participant denied successfully"
+// @Success      200  {object}  map[string]interface{}  "Participant denied successfully (can request to join again)"
 // @Failure      400  {object}  map[string]interface{}  "Invalid room or participant ID"
 // @Failure      401  {object}  map[string]interface{}  "User not authenticated"
 // @Failure      403  {object}  map[string]interface{}  "User is not the host"
@@ -528,8 +529,112 @@ func (h *Room) DenyParticipant(c echo.Context) error {
 	}
 
 	return h.handleSuccess(c, map[string]interface{}{
-		"message": "participant denied successfully",
+		"message": "participant denied successfully - they can request to join again",
 	})
+}
+
+// BlockParticipant handles POST /rooms/:id/participants/:pid/block
+// @Summary      Block participant permanently
+// @Description  Permanently blocks a participant from joining the room (hard block - user cannot join again)
+// @Description  Note: This is different from deny - blocked users cannot request to join again
+// @Tags         Rooms
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id   path      string  true  "Room ID (UUID)"
+// @Param        pid  path      string  true  "Participant ID (UUID)"
+// @Param        request  body  room.DenyParticipantRequest  false  "Block reason (optional)"
+// @Success      200  {object}  map[string]interface{}  "Participant blocked permanently"
+// @Failure      400  {object}  map[string]interface{}  "Invalid room or participant ID"
+// @Failure      401  {object}  map[string]interface{}  "User not authenticated"
+// @Failure      403  {object}  map[string]interface{}  "User is not the host"
+// @Failure      500  {object}  map[string]interface{}  "Failed to block participant"
+// @Router       /rooms/{id}/participants/{pid}/block [post]
+func (h *Room) BlockParticipant(c echo.Context) error {
+	roomID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		return h.handleError(c, errors.ErrInvalidArgument("Invalid room ID").WithDetail("error", "Room ID must be a valid UUID"))
+	}
+
+	participantID, err := uuid.Parse(c.Param("pid"))
+	if err != nil {
+		return h.handleError(c, errors.ErrInvalidArgument("Invalid participant ID").WithDetail("error", "Participant ID must be a valid UUID"))
+	}
+
+	userID, ok := c.Get("user_id").(uuid.UUID)
+	if !ok {
+		return h.handleError(c, errors.ErrUnauthenticated().WithDetail("error", "User not authenticated"))
+	}
+
+	var req room.DenyParticipantRequest
+	if err := c.Bind(&req); err != nil {
+		// Reason is optional, so we ignore bind errors
+		req.Reason = ""
+	}
+
+	if err := h.roomService.BlockParticipant(c.Request().Context(), roomID, userID, participantID, req.Reason); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return h.handleSuccess(c, map[string]interface{}{
+		"message": "participant blocked permanently",
+	})
+}
+
+// GetMyParticipantStatus handles GET /rooms/:id/participants/me/status
+// @Summary      Get my participant status (polling endpoint)
+// @Description  Allows users to check their participant status and receive token when admitted
+// @Description  This is used for polling while waiting in the waiting room
+// @Tags         Participants
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id   path      string  true  "Room ID (UUID)"
+// @Success      200  {object}  room.ParticipantStatusResponse  "Current participant status"
+// @Failure      400  {object}  map[string]interface{}  "Invalid room ID"
+// @Failure      401  {object}  map[string]interface{}  "User not authenticated"
+// @Failure      404  {object}  map[string]interface{}  "Participant record not found"
+// @Failure      500  {object}  map[string]interface{}  "Failed to get status"
+// @Router       /rooms/{id}/participants/me/status [get]
+func (h *Room) GetMyParticipantStatus(c echo.Context) error {
+	roomID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		return h.handleError(c, errors.ErrInvalidArgument("Invalid room ID").WithDetail("error", "Room ID must be a valid UUID"))
+	}
+
+	userID, ok := c.Get("user_id").(uuid.UUID)
+	if !ok {
+		return h.handleError(c, errors.ErrUnauthenticated().WithDetail("error", "User not authenticated"))
+	}
+
+	r, participant, token, err := h.roomService.GetMyParticipantStatus(c.Request().Context(), roomID, userID)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	// Build response based on participant status
+	var message string
+	switch participant.Status {
+	case entities.ParticipantStatusWaiting:
+		message = "You are in the waiting room. Please wait for host approval."
+	case entities.ParticipantStatusJoined:
+		message = "You have been admitted to the room."
+	case entities.ParticipantStatusDenied:
+		message = "You have been blocked from this room."
+	case entities.ParticipantStatusLeft:
+		message = "You have left the room."
+	default:
+		message = fmt.Sprintf("Current status: %s", participant.Status)
+	}
+
+	response := &room.ParticipantStatusResponse{
+		Status:       string(participant.Status),
+		Message:      message,
+		Room:         presenter.ToRoomResponse(r),
+		Participant:  presenter.ToParticipantResponse(participant),
+		LivekitToken: token,
+		LivekitURL:   h.roomService.GetLivekitURL(),
+	}
+
+	return h.handleSuccess(c, response)
 }
 
 // RemoveParticipant handles DELETE /rooms/:id/participants/:pid
@@ -766,15 +871,31 @@ func (h *Room) GetRoomInvitations(c echo.Context) error {
 }
 
 // GetMeetingSummary retrieves the AI-generated summary for a meeting
-// @Summary      Get meeting summary
-// @Description  Retrieves the AI-generated meeting summary, including key points, decisions, action items, and sentiment analysis
+// @Summary      Get meeting AI summary
+// @Description  Retrieves the comprehensive AI-generated meeting summary with analysis
+// @Description
+// @Description  **Response includes:**
+// @Description  - Executive summary (2-3 sentence overview)
+// @Description  - Key points with timestamps and importance levels
+// @Description  - Decisions made with owners and impact assessment
+// @Description  - Topics discussed (main themes ordered by importance)
+// @Description  - Key questions raised (important questions including unanswered ones)
+// @Description  - Chapters & Topics (auto-generated meeting sections from AssemblyAI)
+// @Description  - Action items with assignments, priorities, and due dates
+// @Description  - Sentiment analysis (overall and per-speaker breakdown)
+// @Description  - Engagement metrics (speaking time, participation balance)
+// @Description
+// @Description  **Status codes:**
+// @Description  - 200: Summary available and returned
+// @Description  - 202: Summary is being generated (check back later)
+// @Description  - 404: Meeting not found or no recording available
 // @Tags         Meetings
 // @Produce      json
 // @Security     BearerAuth
-// @Param        id   path      string                                    true  "Room ID (UUID)"
+// @Param        id   path      string                                    true  "Meeting/Room ID (UUID)"
 // @Success      200  {object}  summaryDTO.MeetingSummaryResponse         "Meeting summary retrieved successfully"
 // @Success      202  {object}  summaryDTO.SummaryStatusResponse          "Summary is being generated"
-// @Failure      400  {object}  map[string]interface{}                    "Invalid room ID"
+// @Failure      400  {object}  map[string]interface{}                    "Invalid room ID format"
 // @Failure      401  {object}  map[string]interface{}                    "User not authenticated"
 // @Failure      404  {object}  map[string]interface{}                    "Meeting not found or no transcript available"
 // @Failure      500  {object}  map[string]interface{}                    "Failed to retrieve summary"
@@ -923,6 +1044,34 @@ func (h *Room) buildSummaryResponse(ctx context.Context, summary *entities.Meeti
 		}
 	}
 
+	// Parse key questions
+	if summary.OpenQuestions != nil {
+		var keyQuestions []string
+		if err := json.Unmarshal(summary.OpenQuestions, &keyQuestions); err != nil {
+			h.logger.Warn("Failed to parse key questions", zap.Error(err))
+		} else {
+			response.KeyQuestions = keyQuestions
+		}
+	}
+
+	// Fetch chapters from transcript
+	if summary.TranscriptID != uuid.Nil {
+		transcript, err := h.summaryRepo.GetTranscriptByID(ctx, summary.TranscriptID)
+		if err != nil {
+			h.logger.Warn("Failed to fetch transcript for chapters", zap.Error(err))
+		} else if transcript != nil && len(transcript.Chapters) > 0 {
+			response.Chapters = make([]summaryDTO.Chapter, len(transcript.Chapters))
+			for i, chapter := range transcript.Chapters {
+				response.Chapters[i] = summaryDTO.Chapter{
+					Gist:     chapter.Gist,
+					Headline: chapter.Headline,
+					Summary:  chapter.Summary,
+					Start:    chapter.Start,
+					End:      chapter.End,
+				}
+			}
+		}
+	}
 	// Parse sentiment breakdown
 	if summary.SentimentBreakdown != nil {
 		var sentimentBreakdown map[string]interface{}
