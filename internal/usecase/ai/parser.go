@@ -282,8 +282,8 @@ func (p *Parser) ValidateAnalysisResult(result *entities.AnalysisResult) error {
 	if result.Topics == nil {
 		result.Topics = make([]string, 0)
 	}
-	if result.OpenQuestions == nil {
-		result.OpenQuestions = make([]string, 0)
+	if result.KeyQuestions == nil {
+		result.KeyQuestions = make([]string, 0)
 	}
 	if result.NextSteps == nil {
 		result.NextSteps = make([]entities.NextStep, 0)

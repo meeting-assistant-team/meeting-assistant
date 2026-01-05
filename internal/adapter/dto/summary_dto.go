@@ -15,6 +15,8 @@ type MeetingSummaryResponse struct {
 	KeyPoints          []KeyPoint             `json:"key_points"`
 	Decisions          []Decision             `json:"decisions"`
 	Topics             []string               `json:"topics"`
+	KeyQuestions       []string               `json:"key_questions"`
+	Chapters           []Chapter              `json:"chapters,omitempty"`
 	ActionItems        []ActionItemDTO        `json:"action_items"`
 	SentimentBreakdown map[string]interface{} `json:"sentiment_breakdown"`
 	EngagementMetrics  EngagementMetricsDTO   `json:"engagement_metrics"`
@@ -44,6 +46,15 @@ type NextStep struct {
 	Owner            string `json:"owner"`
 	DueDateMentioned string `json:"due_date_mentioned,omitempty"`
 	Priority         string `json:"priority"` // high, medium, low
+}
+
+// Chapter represents a meeting chapter/section
+type Chapter struct {
+	Gist     string `json:"gist"`
+	Headline string `json:"headline"`
+	Summary  string `json:"summary"`
+	Start    float64 `json:"start"` // Start time in milliseconds
+	End      float64 `json:"end"`   // End time in milliseconds
 }
 
 // ActionItemDTO represents an action item

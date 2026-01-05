@@ -91,6 +91,19 @@ func (r *aiRepository) GetTranscriptByRecordingID(recordingID string) (*entities
 	return t, nil
 }
 
+
+// GetTranscriptByID retrieves a transcript by its ID
+func (r *aiRepository) GetTranscriptByID(ctx context.Context, transcriptID uuid.UUID) (*entities.Transcript, error) {
+var transcript entities.Transcript
+err := r.db.WithContext(ctx).Where("id = ?", transcriptID).First(&transcript).Error
+if err != nil {
+if err == gorm.ErrRecordNotFound {
+return nil, nil
+}
+return nil, err
+}
+return &transcript, nil
+}
 func (r *aiRepository) SaveMeetingSummary(s *entities.MeetingSummary) error {
 	// Store JSONB fields as []byte directly (already marshaled)
 	return r.db.Exec(`INSERT INTO meeting_summaries (

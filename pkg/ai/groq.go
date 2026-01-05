@@ -167,8 +167,8 @@ Yêu cầu output JSON schema:
       "impact": "high"
     }
   ],
-  "topics": ["topic1", "topic2"],
-  "open_questions": ["Câu hỏi chưa được giải đáp"],
+  "topics": ["chủ đề chính 1", "chủ đề chính 2", "chủ đề phụ 3"],
+  "key_questions": ["Câu hỏi quan trọng được đặt ra", "Vấn đề chưa được giải đáp"],
   "next_steps": [
     {
       "description": "Mô tả next step",
@@ -206,6 +206,8 @@ Yêu cầu output JSON schema:
 }
 
 Lưu ý:
+- Topics: liệt kê các chủ đề chính và phụ được thảo luận, sắp xếp theo tầm quan trọng
+- Key Questions: câu hỏi quan trọng được đặt ra trong cuộc họp, bao gồm cả câu hỏi chưa được trả lời
 - Sentiment score từ -1.0 (rất tiêu cực) đến 1.0 (rất tích cực)
 - Importance/Priority: low, medium, high, urgent
 - Engagement level: low, medium, high
@@ -235,8 +237,8 @@ Required JSON schema:
       "impact": "high"
     }
   ],
-  "topics": ["topic1", "topic2"],
-  "open_questions": ["Unresolved questions"],
+  "topics": ["main topic 1", "main topic 2", "sub topic 3"],
+  "key_questions": ["Important questions raised", "Unresolved issues or concerns"],
   "next_steps": [
     {
       "description": "Next step description",
@@ -274,6 +276,8 @@ Required JSON schema:
 }
 
 Notes:
+- Topics: list main and sub-topics discussed, ordered by importance
+- Key Questions: important questions raised during the meeting, including unanswered ones
 - Sentiment score from -1.0 (very negative) to 1.0 (very positive)
 - Importance/Priority: low, medium, high, urgent
 - Engagement level: low, medium, high

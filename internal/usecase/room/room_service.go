@@ -618,13 +618,7 @@ func (s *RoomService) AdmitParticipant(ctx context.Context, roomID, hostID, part
 		return "", fmt.Errorf("failed to increment participant count: %w", err)
 	}
 
-	// Generate LiveKit access token for the participant
-	accessToken, err := s.livekitClient.GenerateToken(participant.UserID.String(), room.LivekitRoomName, "", nil)
-	if err != nil {
-		return "", fmt.Errorf("failed to generate access token: %w", err)
-	}
-
-	return accessToken, nil
+	return "", nil
 }
 
 // DenyParticipant denies a waiting participant from joining the room

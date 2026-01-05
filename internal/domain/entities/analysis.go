@@ -12,7 +12,7 @@ type AnalysisResult struct {
 	KeyPoints          []KeyPoint                    `json:"key_points"`
 	Decisions          []Decision                    `json:"decisions"`
 	Topics             []string                      `json:"topics"`
-	OpenQuestions      []string                      `json:"open_questions"`
+	KeyQuestions       []string                      `json:"key_questions"`
 	NextSteps          []NextStep                    `json:"next_steps"`
 	ActionItems        []ActionItemExtracted         `json:"action_items"`
 	OverallSentiment   float64                       `json:"overall_sentiment"`
