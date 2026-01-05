@@ -40,8 +40,14 @@ type Service interface {
 	// AdmitParticipant admits a waiting participant into the room and returns LiveKit access token
 	AdmitParticipant(ctx context.Context, roomID, hostID, participantID uuid.UUID) (string, error)
 
-	// DenyParticipant denies a waiting participant from joining the room
+	// DenyParticipant denies a waiting participant from joining the room (soft rejection)
 	DenyParticipant(ctx context.Context, roomID, hostID, participantID uuid.UUID, reason string) error
+
+	// BlockParticipant permanently blocks a participant from joining the room
+	BlockParticipant(ctx context.Context, roomID, hostID, participantID uuid.UUID, reason string) error
+
+	// GetMyParticipantStatus gets the current user's participant status in a room (for polling)
+	GetMyParticipantStatus(ctx context.Context, roomID, userID uuid.UUID) (*entities.Room, *entities.Participant, string, error)
 
 	// RemoveParticipant removes a participant from a room (host only)
 	RemoveParticipant(ctx context.Context, roomID, hostID, participantID uuid.UUID, reason string) error

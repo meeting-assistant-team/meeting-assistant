@@ -27,7 +27,7 @@ const (
 	ParticipantStatusLeft     ParticipantStatus = "left"
 	ParticipantStatusRemoved  ParticipantStatus = "removed"
 	ParticipantStatusDeclined ParticipantStatus = "declined"
-	ParticipantStatusDenied   ParticipantStatus = "denied"
+	ParticipantStatusDenied   ParticipantStatus = "denied" // Reserved for future "block" feature - currently unused (deny = delete record)
 )
 
 // Participant represents a user's participation in a room

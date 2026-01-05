@@ -57,8 +57,8 @@ func (rt *Router) Setup(e *echo.Echo) {
 	// Setup route groups
 	rt.setupAuthRoutes(v1)
 	rt.setupRoomRoutes(v1)
-	rt.setupMeetingRoutes(v1)    
-	rt.setupInvitationRoutes(v1) 
+	rt.setupMeetingRoutes(v1)
+	rt.setupInvitationRoutes(v1)
 	rt.setupTestRoutes(v1)
 	// AI endpoints
 	if rt.aiController != nil {
@@ -128,14 +128,16 @@ func (rt *Router) setupRoomRoutes(g *echo.Group) {
 		roomGroup.PATCH("/:id", rt.roomHandler.EndRoom) // End room (update status to ended)
 
 		// Participant management (RESTful)
-		roomGroup.POST("/:id/participants", rt.roomHandler.JoinRoom)                      // Join room (create participant)
-		roomGroup.DELETE("/:id/participants/me", rt.roomHandler.LeaveRoom)                // Leave room (delete own participant)
-		roomGroup.GET("/:id/participants", rt.roomHandler.GetParticipants)                // List participants
-		roomGroup.GET("/:id/participants/waiting", rt.roomHandler.GetWaitingParticipants) // Get waiting participants
-		roomGroup.POST("/:id/participants/:pid/admit", rt.roomHandler.AdmitParticipant)   // Admit participant
-		roomGroup.POST("/:id/participants/:pid/deny", rt.roomHandler.DenyParticipant)     // Deny participant
-		roomGroup.DELETE("/:id/participants/:pid", rt.roomHandler.RemoveParticipant)      // Remove participant
-		roomGroup.PATCH("/:id/host", rt.roomHandler.TransferHost)                         // Transfer host
+		roomGroup.POST("/:id/participants", rt.roomHandler.JoinRoom)                        // Join room (create participant)
+		roomGroup.DELETE("/:id/participants/me", rt.roomHandler.LeaveRoom)                  // Leave room (delete own participant)
+		roomGroup.GET("/:id/participants", rt.roomHandler.GetParticipants)                  // List participants
+		roomGroup.GET("/:id/participants/waiting", rt.roomHandler.GetWaitingParticipants)   // Get waiting participants
+		roomGroup.GET("/:id/participants/me/status", rt.roomHandler.GetMyParticipantStatus) // Poll participant status
+		roomGroup.POST("/:id/participants/:pid/admit", rt.roomHandler.AdmitParticipant)     // Admit participant
+		roomGroup.POST("/:id/participants/:pid/deny", rt.roomHandler.DenyParticipant)       // Deny participant (soft)
+		roomGroup.POST("/:id/participants/:pid/block", rt.roomHandler.BlockParticipant)     // Block participant (permanent)
+		roomGroup.DELETE("/:id/participants/:pid", rt.roomHandler.RemoveParticipant)        // Remove participant
+		roomGroup.PATCH("/:id/host", rt.roomHandler.TransferHost)                           // Transfer host
 
 		// Invitation routes
 		roomGroup.POST("/:id/invitations", rt.roomHandler.InviteByEmail)                 // Invite user by email
