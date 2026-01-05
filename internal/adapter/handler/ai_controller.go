@@ -20,19 +20,28 @@ func NewAIController(svc aiuse.Service, logger *zap.Logger) *AIController {
 }
 
 // ProcessMeeting triggers AI processing for a meeting
-// @Summary      Process meeting recording
+// @Summary      Manually trigger AI processing
 // @Description  Manually triggers AI processing (transcription and analysis) for a meeting recording
+// @Description
+// @Description  **Use cases:**
+// @Description  - Testing AI pipeline without recording a live meeting
+// @Description  - Reprocessing a meeting with updated AI prompts
+// @Description  - Recovery when automatic processing failed
+// @Description  - Host requesting re-analysis with custom parameters (future enhancement)
+// @Description
+// @Description  **Note:** In production, AI processing is automatically triggered when a meeting ends via LiveKit webhook.
+// @Description  This endpoint is primarily for manual intervention, testing, and future custom processing features.
 // @Tags         AI
 // @Accept       json
 // @Produce      json
 // @Security     BearerAuth
-// @Param        id       path      string                      true  "Meeting ID (UUID)"
-// @Param        request  body      object{recording_url=string}  true  "Recording URL for processing"
-// @Success      202      {object}  map[string]interface{}      "Processing started"
-// @Failure      400      {object}  map[string]interface{}      "Missing recording_url or invalid meeting ID"
-// @Failure      401      {object}  map[string]interface{}      "User not authenticated"
-// @Failure      500      {object}  map[string]interface{}      "Failed to start processing"
-// @Router       /ai/meetings/{id}/process [post]
+// @Param        id       path      string                                true  "Meeting ID (UUID)"
+// @Param        request  body      object{recording_url=string}          true  "Recording URL for processing"
+// @Success      202      {object}  map[string]interface{}                "Processing started successfully"
+// @Failure      400      {object}  map[string]interface{}                "Missing recording_url or invalid meeting ID"
+// @Failure      401      {object}  map[string]interface{}                "User not authenticated"
+// @Failure      500      {object}  map[string]interface{}                "Failed to start processing"
+// @Router       /meetings/{id}/process-ai [post]
 func (ac *AIController) ProcessMeeting(c echo.Context) error {
 	meetingID := c.Param("id")
 	var req struct {

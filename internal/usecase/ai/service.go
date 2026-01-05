@@ -919,7 +919,7 @@ func (s *aiService) generateMeetingSummary(ctx context.Context, job *entities.AI
 	if topics, err := json.Marshal(analysisResult.Topics); err == nil {
 		summary.Topics = topics
 	}
-	if openQuestions, err := json.Marshal(analysisResult.OpenQuestions); err == nil {
+	if openQuestions, err := json.Marshal(analysisResult.KeyQuestions); err == nil {
 		summary.OpenQuestions = openQuestions
 	}
 	if nextSteps, err := json.Marshal(analysisResult.NextSteps); err == nil {

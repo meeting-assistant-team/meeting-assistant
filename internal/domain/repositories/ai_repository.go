@@ -12,6 +12,7 @@ type AIRepository interface {
 	// Transcripts
 	SaveTranscript(t *entities.Transcript) error
 	GetTranscriptByRecordingID(recordingID string) (*entities.Transcript, error)
+	GetTranscriptByID(ctx context.Context, transcriptID uuid.UUID) (*entities.Transcript, error)
 
 	// Summaries
 	SaveMeetingSummary(s *entities.MeetingSummary) error
