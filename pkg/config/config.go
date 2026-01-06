@@ -47,6 +47,7 @@ type DatabaseConfig struct {
 	SSLMode  string `envconfig:"DB_SSLMODE"`
 	MaxConns int    `envconfig:"DB_MAX_CONNS"`
 	MinConns int    `envconfig:"DB_MIN_CONNS"`
+	LogLevel string `envconfig:"DB_LOG_LEVEL" default:"error"`
 }
 
 // OAuthConfig holds OAuth configuration

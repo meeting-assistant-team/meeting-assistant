@@ -85,8 +85,32 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    labels:
+      # Enable Traefik
+      - "traefik.enable=true"
+      
+      # Specify network for Traefik to use
+      - "traefik.docker.network=n8n_network"
+      
+      # API HTTPS
+      - "traefik.http.routers.app-api.rule=Host(`api-meeting.infoquang.id.vn`)"
+      - "traefik.http.routers.app-api.entrypoints=websecure"
+      - "traefik.http.routers.app-api.tls=true"
+      - "traefik.http.routers.app-api.tls.certresolver=mytlschallenge"
+      - "traefik.http.routers.app-api.service=app-api"
+      - "traefik.http.services.app-api.loadbalancer.server.port=8080"
+      
+      # HTTP to HTTPS redirect for API
+      - "traefik.http.routers.app-api-http.rule=Host(`api-meeting.infoquang.id.vn`)"
+      - "traefik.http.routers.app-api-http.entrypoints=web"
+      - "traefik.http.routers.app-api-http.middlewares=redirect-to-https@docker"
+      
+      # Middleware for HTTPS redirect
+      - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
+      - "traefik.http.middlewares.redirect-to-https.redirectscheme.permanent=true"
     networks:
       - app-network
+      - n8n_network
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
       interval: 30s
@@ -108,6 +132,7 @@ services:
       - minio_data:/data
     networks:
       - app-network
+      - n8n_network
     healthcheck:
       test: ["CMD", "mc", "ready", "local"]
       interval: 30s
@@ -117,11 +142,14 @@ services:
       # Enable Traefik
       - "traefik.enable=true"
       
+      # Specify network for Traefik to use
+      - "traefik.docker.network=n8n_network"
+      
       # MinIO API (port 9000) - For S3 operations and presigned URLs
       - "traefik.http.routers.minio-api.rule=Host(`minio.infoquang.id.vn`)"
       - "traefik.http.routers.minio-api.entrypoints=websecure"
       - "traefik.http.routers.minio-api.tls=true"
-      - "traefik.http.routers.minio-api.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.minio-api.tls.certresolver=mytlschallenge"
       - "traefik.http.routers.minio-api.service=minio-api"
       - "traefik.http.services.minio-api.loadbalancer.server.port=9000"
       
@@ -134,7 +162,7 @@ services:
       - "traefik.http.routers.minio-console.rule=Host(`minio-console.infoquang.id.vn`)"
       - "traefik.http.routers.minio-console.entrypoints=websecure"
       - "traefik.http.routers.minio-console.tls=true"
-      - "traefik.http.routers.minio-console.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.minio-console.tls.certresolver=mytlschallenge"
       - "traefik.http.routers.minio-console.service=minio-console"
       - "traefik.http.services.minio-console.loadbalancer.server.port=9001"
       
@@ -150,6 +178,8 @@ services:
 networks:
   app-network:
     driver: bridge
+  n8n_network:
+    external: true
 
 volumes:
   postgres_data:

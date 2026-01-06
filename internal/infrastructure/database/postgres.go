@@ -18,11 +18,19 @@ import (
 func NewPostgresDB(cfg *config.Config) (*gorm.DB, error) {
 	dsn := cfg.GetDatabaseDSN()
 
-	// Configure GORM logger
-	gormLogger := logger.Default.LogMode(logger.Info)
-	if cfg.Server.Environment == "production" {
-		gormLogger = logger.Default.LogMode(logger.Error)
+	// Configure GORM logger based on DB_LOG_LEVEL
+	logLevel := logger.Error // default
+	switch cfg.Database.LogLevel {
+	case "silent":
+		logLevel = logger.Silent
+	case "error":
+		logLevel = logger.Error
+	case "warn":
+		logLevel = logger.Warn
+	case "info":
+		logLevel = logger.Info
 	}
+	gormLogger := logger.Default.LogMode(logLevel)
 
 	// Open connection
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
