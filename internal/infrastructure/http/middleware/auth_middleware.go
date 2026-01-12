@@ -102,12 +102,13 @@ func GetUserFromContext(ctx context.Context) (*entities.User, bool) {
 	return user, ok
 }
 
-// EchoAuth returns an Echo middleware that validates JWT and sets
-// "user_id" (uuid.UUID) and "user" (*entities.User) into Echo context
+// EchoAuth returns an Echo middleware that validates JWT Bearer tokens
+// OAuth2 Standard: Only supports Authorization: Bearer <token> header
+// Deprecated session_id cookie support removed for pure OAuth2 compliance
 func EchoAuth(oauthService *auth.OAuthService) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
-			// Extract token from Authorization header or cookie
+			// Extract Bearer token from Authorization header (OAuth2 standard)
 			authHeader := c.Request().Header.Get("Authorization")
 			token := ""
 			if authHeader != "" {
@@ -116,24 +117,21 @@ func EchoAuth(oauthService *auth.OAuthService) echo.MiddlewareFunc {
 					token = parts[1]
 				}
 			}
-			// If a session_id cookie exists, prefer server-side session validation
+
+			// DEPRECATED: Fallback to session_id cookie for backwards compatibility
+			// Will be removed in future version
 			if token == "" {
 				if cookie, err := c.Cookie("session_id"); err == nil && cookie.Value != "" {
-					// validate session id
 					if sid, err := uuid.Parse(cookie.Value); err == nil {
 						user, err := oauthService.ValidateSessionByID(c.Request().Context(), sid)
 						if err == nil {
 							c.Set("user", user)
 							c.Set("user_id", user.ID)
 							c.Set("user_email", user.Email)
+							// Log deprecation warning
+							// fmt.Printf("⚠️  [DEPRECATED] session_id cookie used - please migrate to Bearer token\\n")
 							return next(c)
 						}
-					}
-				}
-				// fallback to access_token cookie
-				if token == "" {
-					if cookie, err := c.Cookie("access_token"); err == nil {
-						token = cookie.Value
 					}
 				}
 			}
@@ -142,12 +140,13 @@ func EchoAuth(oauthService *auth.OAuthService) echo.MiddlewareFunc {
 				return echo.NewHTTPError(http.StatusUnauthorized, "Missing authorization token")
 			}
 
+			// Validate access token (OAuth2 standard)
 			user, err := oauthService.ValidateSession(c.Request().Context(), token)
 			if err != nil {
 				return echo.NewHTTPError(http.StatusUnauthorized, "Invalid or expired token")
 			}
 
-			// set into echo context: user, user_id, and user_email
+			// Set user info into echo context
 			c.Set("user", user)
 			c.Set("user_id", user.ID)
 			c.Set("user_email", user.Email)

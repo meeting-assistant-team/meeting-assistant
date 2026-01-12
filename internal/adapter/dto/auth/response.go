@@ -28,7 +28,8 @@ type AuthResponse struct {
 
 // RefreshTokenResponse represents the response after refreshing token
 type RefreshTokenResponse struct {
-	AccessToken string `json:"access_token"`
-	ExpiresIn   int    `json:"expires_in"`
-	TokenType   string `json:"token_type"`
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"` // OAuth2 standard - return new refresh token after rotation
+	ExpiresIn    int    `json:"expires_in"`
+	TokenType    string `json:"token_type"`
 }

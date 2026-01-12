@@ -87,33 +87,87 @@ func (r *roomRepository) List(ctx context.Context, filters repositories.RoomFilt
 
 	query := r.db.WithContext(ctx).Model(&entities.Room{}).Preload("Host")
 
+	// Filter by user participation (as host or participant)
+	if filters.ParticipantUserID != nil {
+		query = query.
+			Joins("LEFT JOIN participants ON participants.room_id = rooms.id").
+			Where(
+				"rooms.host_id = ? OR (participants.user_id = ? AND participants.status IN (?, ?, ?, ?))",
+				*filters.ParticipantUserID,
+				*filters.ParticipantUserID,
+				entities.ParticipantStatusInvited,
+				entities.ParticipantStatusWaiting,
+				entities.ParticipantStatusJoined,
+				entities.ParticipantStatusLeft,
+			)
+	}
+
 	// Apply filters
 	if filters.Type != nil {
-		query = query.Where("type = ?", *filters.Type)
+		query = query.Where("rooms.type = ?", *filters.Type)
 	}
 	if filters.Status != nil {
-		query = query.Where("status = ?", *filters.Status)
+		query = query.Where("rooms.status = ?", *filters.Status)
 	}
 	if filters.HostID != nil {
-		query = query.Where("host_id = ?", *filters.HostID)
+		query = query.Where("rooms.host_id = ?", *filters.HostID)
 	}
 	if filters.Search != "" {
 		searchPattern := fmt.Sprintf("%%%s%%", filters.Search)
-		query = query.Where("name ILIKE ? OR description ILIKE ?", searchPattern, searchPattern)
+		query = query.Where("rooms.name ILIKE ? OR rooms.description ILIKE ?", searchPattern, searchPattern)
 	}
 	if len(filters.Tags) > 0 {
-		query = query.Where("tags @> ?", filters.Tags)
+		query = query.Where("rooms.tags @> ?", filters.Tags)
 	}
 
-	// Count total
-	if err := query.Count(&total).Error; err != nil {
-		return nil, 0, err
+	// Use GROUP BY to avoid duplicates when joining with participants
+	if filters.ParticipantUserID != nil {
+		query = query.Group("rooms.id")
 	}
 
-	// Apply sorting
-	sortBy := "created_at"
+	// Count total (need to handle GROUP BY case)
+	if filters.ParticipantUserID != nil {
+		// For GROUP BY queries, count distinct room IDs
+		var countQuery = r.db.WithContext(ctx).Model(&entities.Room{}).
+			Joins("LEFT JOIN participants ON participants.room_id = rooms.id").
+			Where(
+				"rooms.host_id = ? OR (participants.user_id = ? AND participants.status IN (?, ?, ?, ?))",
+				*filters.ParticipantUserID,
+				*filters.ParticipantUserID,
+				entities.ParticipantStatusInvited,
+				entities.ParticipantStatusWaiting,
+				entities.ParticipantStatusJoined,
+				entities.ParticipantStatusLeft,
+			)
+		if filters.Type != nil {
+			countQuery = countQuery.Where("rooms.type = ?", *filters.Type)
+		}
+		if filters.Status != nil {
+			countQuery = countQuery.Where("rooms.status = ?", *filters.Status)
+		}
+		if filters.HostID != nil {
+			countQuery = countQuery.Where("rooms.host_id = ?", *filters.HostID)
+		}
+		if filters.Search != "" {
+			searchPattern := fmt.Sprintf("%%%s%%", filters.Search)
+			countQuery = countQuery.Where("rooms.name ILIKE ? OR rooms.description ILIKE ?", searchPattern, searchPattern)
+		}
+		if len(filters.Tags) > 0 {
+			countQuery = countQuery.Where("rooms.tags @> ?", filters.Tags)
+		}
+		if err := countQuery.Group("rooms.id").Count(&total).Error; err != nil {
+			return nil, 0, err
+		}
+	} else {
+		if err := query.Count(&total).Error; err != nil {
+			return nil, 0, err
+		}
+	}
+
+	// Apply sorting with table prefix
+	sortBy := "rooms.created_at"
 	if filters.SortBy != "" {
-		sortBy = filters.SortBy
+		sortBy = "rooms." + filters.SortBy
 	}
 	sortOrder := "DESC"
 	if filters.SortOrder != "" {
