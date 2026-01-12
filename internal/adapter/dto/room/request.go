@@ -32,7 +32,7 @@ type ListRoomsRequest struct {
 	Search    string   `query:"search"`
 	Tags      []string `query:"tags"`
 	Page      int      `query:"page" validate:"min=1"`
-	PageSize  int      `query:"page_size" validate:"min=1,max=100"`
+	PageSize  int      `query:"page_size" validate:"min=1,max=5"`
 	SortBy    string   `query:"sort_by" validate:"omitempty,oneof=created_at started_at name"`
 	SortOrder string   `query:"sort_order" validate:"omitempty,oneof=asc desc"`
 }

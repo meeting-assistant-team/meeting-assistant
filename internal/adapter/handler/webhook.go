@@ -24,7 +24,7 @@ type WebhookHandler struct {
 }
 
 // NewWebhookHandler creates a new webhook handler
-func NewWebhookHandler(roomService roomUsecase.Service, aiService aiUsecase.Service, minioClient *storage.MinIOClient, recordingRepo *repository.RecordingRepository, aiJobRepo *repository.AIJobRepository, livekitAPIKey string, livekitSecret string, logger *zap.Logger) *WebhookHandler {
+func NewWebhookHandler(roomService roomUsecase.Service, aiService aiUsecase.Service, minioClient *storage.MinIOClient, recordingRepo *repository.RecordingRepository, aiJobRepo *repository.AIJobRepository, livekitAPIKey string, livekitSecret string, webhookSecret string, logger *zap.Logger) *WebhookHandler {
 	return &WebhookHandler{
 		roomService:   roomService,
 		aiService:     aiService,
@@ -33,8 +33,8 @@ func NewWebhookHandler(roomService roomUsecase.Service, aiService aiUsecase.Serv
 		aiJobRepo:     aiJobRepo,
 		livekitAPIKey: livekitAPIKey,
 		livekitSecret: livekitSecret,
-		//webhookSecret: webhookSecret,
-		logger: logger,
+		webhookSecret: webhookSecret,
+		logger:        logger,
 	}
 }
 

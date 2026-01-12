@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/johnquangdev/meeting-assistant/errors"
 	"github.com/johnquangdev/meeting-assistant/internal/adapter/dto/room"
 	"github.com/johnquangdev/meeting-assistant/internal/domain/entities"
@@ -112,14 +113,15 @@ func ValidateContentType(r *http.Request, expectedType string) bool {
 }
 
 // buildFilters converts ListRoomsRequest to repository filters
-func buildFilters(req *room.ListRoomsRequest) repositories.RoomFilters {
+func buildFilters(req *room.ListRoomsRequest, userID *uuid.UUID) repositories.RoomFilters {
 	filters := repositories.RoomFilters{
-		Search:    req.Search,
-		Tags:      req.Tags,
-		Limit:     req.PageSize,
-		Offset:    (req.Page - 1) * req.PageSize,
-		SortBy:    req.SortBy,
-		SortOrder: req.SortOrder,
+		Search:            req.Search,
+		Tags:              req.Tags,
+		Limit:             req.PageSize,
+		Offset:            (req.Page - 1) * req.PageSize,
+		SortBy:            req.SortBy,
+		SortOrder:         req.SortOrder,
+		ParticipantUserID: userID,
 	}
 
 	// Only apply type filter if not empty string

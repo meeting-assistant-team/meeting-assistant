@@ -111,6 +111,7 @@ func main() {
 	log.Println("⚙️  Initializing repositories...")
 	userRepo := repository.NewUserRepository(db)
 	sessionRepo := repository.NewSessionRepository(db)
+	tokenFamilyRepo := repository.NewTokenFamilyRepository(db) // OAuth2 token rotation
 	roomRepo := repository.NewRoomRepository(db)
 	participantRepo := repository.NewParticipantRepository(db)
 	aiJobRepo := repository.NewAIJobRepository(db)
@@ -143,6 +144,10 @@ func main() {
 	log.Println("🔒 Initializing state manager...")
 	stateManager := oauth.NewStateManager(memoryStore)
 
+	// Initialize PKCE manager for OAuth2 security (RFC 7636)
+	log.Println("🛡️  Initializing PKCE manager...")
+	pkceManager := oauth.NewPKCEManager(memoryStore)
+
 	// Initialize JWT manager
 	log.Println("🔑 Initializing JWT manager...")
 	jwtManager := jwt.NewManager(
@@ -157,8 +162,10 @@ func main() {
 	oauthService := auth.NewOAuthService(
 		userRepo,
 		sessionRepo,
+		tokenFamilyRepo, // OAuth2 token rotation support
 		googleProvider,
 		stateManager,
+		pkceManager, // PKCE support for enhanced security
 		jwtManager,
 	)
 
@@ -202,7 +209,7 @@ func main() {
 
 	// Initialize webhook handler (for LiveKit webhooks)
 	log.Println("🪝 Initializing webhook handler...")
-	webhookHandler := handler.NewWebhookHandler(roomService, aiService, minioClient, recordingRepo, aiJobRepo, cfg.LiveKit.APIKey, cfg.LiveKit.APISecret, logger)
+	webhookHandler := handler.NewWebhookHandler(roomService, aiService, minioClient, recordingRepo, aiJobRepo, cfg.LiveKit.APIKey, cfg.LiveKit.APISecret, cfg.LiveKit.WebhookSecret, logger)
 	log.Println("✅ Webhook handler initialized successfully")
 
 	// Initialize storage test handler

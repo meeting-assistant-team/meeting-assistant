@@ -22,6 +22,11 @@ var (
 	ErrSessionExpired  = errors.New("session expired")
 	ErrInvalidToken    = errors.New("invalid token")
 
+	// Token family errors
+	ErrTokenFamilyNotFound = errors.New("token family not found")
+	ErrTokenReuse          = errors.New("token reuse detected - possible theft")
+	ErrTokenRotationFailed = errors.New("token rotation failed")
+
 	// Generic errors
 	ErrUnauthorized   = errors.New("unauthorized")
 	ErrForbidden      = errors.New("forbidden")

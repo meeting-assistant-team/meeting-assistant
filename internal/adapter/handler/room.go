@@ -188,8 +188,15 @@ func (h *Room) ListRooms(c echo.Context) error {
 		req.Tags = tags
 	}
 
+	// Get user ID from context (set by auth middleware)
+	userID, ok := c.Get("user_id").(uuid.UUID)
+	if !ok {
+		return h.handleError(c, errors.ErrUnauthenticated())
+	}
+
 	// Debug logging
 	h.logger.Info("ListRooms request",
+		zap.String("user_id", userID.String()),
 		zap.String("type", req.Type),
 		zap.String("status", req.Status),
 		zap.String("search", req.Search),
@@ -197,10 +204,11 @@ func (h *Room) ListRooms(c echo.Context) error {
 		zap.Int("page_size", req.PageSize),
 	)
 
-	// Build filters
-	filters := buildFilters(&req)
+	// Build filters with user participation filter
+	filters := buildFilters(&req, &userID)
 
 	h.logger.Info("ListRooms filters",
+		zap.String("participant_user_id", userID.String()),
 		zap.Any("type_filter", filters.Type),
 		zap.Any("status_filter", filters.Status),
 	)

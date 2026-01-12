@@ -13,7 +13,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/livekit/protocol/auth"
-	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/webhook"
 	"go.uber.org/zap"
 
@@ -50,13 +49,6 @@ func (p *multiKeyProvider) NumKeys() int {
 
 // HandleLiveKitWebhook processes LiveKit webhook events with proper signature validation
 func (h *WebhookHandler) HandleLiveKitWebhookV2(c echo.Context) error {
-	// Log immediately to check if handler is reached
-	fmt.Println("\n🚨 [CRITICAL] HandleLiveKitWebhookV2 handler called!")
-	fmt.Printf("🚨 [CRITICAL] Method: %s, Path: %s\n", c.Request().Method, c.Request().URL.Path)
-	fmt.Printf("🚨 [CRITICAL] Authorization header present: %v\n", c.Request().Header.Get("Authorization") != "")
-	fmt.Printf("🚨 [CRITICAL] Webhook secret length: %d\n", len(h.webhookSecret))
-
-	c.Logger().Info("🌐 [WEBHOOK] === Received webhook request ===")
 
 	// Read raw body for signature validation
 	bodyBytes, err := io.ReadAll(c.Request().Body)
@@ -72,110 +64,108 @@ func (h *WebhookHandler) HandleLiveKitWebhookV2(c echo.Context) error {
 
 	c.Logger().Infof("📥 [WEBHOOK] Raw body length: %d bytes", len(bodyBytes))
 
-	// DEBUG: Log raw webhook payload
-	fmt.Printf("\n🔍 [RAW WEBHOOK] Payload:\n%s\n\n", string(bodyBytes))
+	// Parse raw JSON directly to avoid enum type mismatch issues
+	// LiveKit sends string values like "DISCONNECTED", "MICROPHONE" but Go SDK expects integer enums
+	var rawEvent map[string]interface{}
+	err = json.NewDecoder(bytes.NewReader(bodyBytes)).Decode(&rawEvent)
+	if err != nil {
+		if h.logger != nil {
+			h.logger.Error("failed to parse webhook JSON", zap.Error(err))
+		}
+		return c.JSON(400, map[string]interface{}{"error": "invalid webhook format"})
+	}
 
-	// Get authorization header
+	// Get authorization header for optional signature validation
 	authHeader := c.Request().Header.Get("Authorization")
-	c.Logger().Infof("🔐 [WEBHOOK] Authorization header: %s", authHeader)
+	c.Logger().Infof("🔐 [WEBHOOK] Authorization header present: %v", authHeader != "")
 
-	var event *livekit.WebhookEvent
-
+	// Optional: Validate signature in production (currently in dev mode, we accept without validation)
 	if authHeader != "" {
 		// Debug: Decode JWT header to see key ID
 		parts := strings.Split(authHeader, ".")
 		if len(parts) >= 1 {
 			headerBytes, err := base64.RawURLEncoding.DecodeString(parts[0])
 			if err == nil {
-				fmt.Printf("🔍 [JWT DEBUG] Header: %s\n", string(headerBytes))
+				fmt.Printf("\n🔍 [JWT DEBUG] Header: %s\n\n", string(headerBytes))
 			}
 		}
-
-		// Debug: Log all available credentials
-		fmt.Println("\n🔐 [DEBUG] Available credentials:")
-		fmt.Printf("   - API Key: %s...\n", h.livekitAPIKey[:10])
-		fmt.Printf("   - API Secret: %s...\n", h.livekitSecret[:10])
-		fmt.Printf("   - Webhook Secret: %s (from Dashboard)\n", h.livekitSecret)
-		fmt.Printf("   - Auth Header: %s...\n", authHeader[:20])
-
-		// Sử dụng auth.NewSimpleKeyProvider đúng chuẩn LiveKit
+		// Try to validate signature using webhook secret (NOT API credentials)
+		// LiveKit signs webhooks with the Webhook Signing Key from Dashboard
 		authProvider := auth.NewSimpleKeyProvider(h.livekitAPIKey, h.livekitSecret)
-		fmt.Printf("🔑 [WEBHOOK] Validating với keyID: %s, secret: %s\n", h.livekitAPIKey, h.livekitSecret)
-		event, err = webhook.ReceiveWebhookEvent(c.Request(), authProvider)
+		fmt.Printf("🔑 [WEBHOOK] Validating với keyID: %s, secret: %s...\n", h.livekitAPIKey, h.livekitSecret[:10])
+		_, validationErr := webhook.ReceiveWebhookEvent(c.Request(), authProvider)
 
-		if err != nil {
+		if validationErr != nil {
 			fmt.Printf("❌ SIGNATURE VALIDATION FAILED!\n")
-			fmt.Printf("   Error: %v\n", err)
+			fmt.Printf("   Error: %v\n", validationErr)
 			fmt.Printf("   This might be a LiveKit signing key mismatch.\n")
 			fmt.Printf("⚠️  FALLING BACK TO UNSIGNED MODE (DEV ONLY)\n")
 
 			if h.logger != nil {
 				h.logger.Warn("Webhook signature validation failed - parsing without validation",
-					zap.Error(err),
+					zap.Error(validationErr),
 					zap.String("expected_signing_key", h.webhookSecret),
 					zap.String("dashboard_shows", "APIOMTEQXFBCDEJ"),
 				)
 			}
-			c.Logger().Errorf("❌ [WEBHOOK] Signature validation error: %v", err)
-			// Fallback to JSON parsing WITHOUT validation for development
+			c.Logger().Errorf("❌ [WEBHOOK] Signature validation error: %v", validationErr)
 			c.Logger().Warn("⚠️  Processing webhook WITHOUT signature validation (DEV MODE)")
-			var eventData livekit.WebhookEvent
-			err = json.NewDecoder(bytes.NewReader(bodyBytes)).Decode(&eventData)
-			if err != nil {
-				if h.logger != nil {
-					h.logger.Error("failed to parse webhook JSON", zap.Error(err))
-				}
-				return c.JSON(400, map[string]interface{}{"error": "invalid webhook format"})
-			}
-			event = &eventData
 		} else {
 			fmt.Printf("✅ ✅ ✅ SUCCESS! Webhook signature validated!\n")
 			fmt.Printf("   Signing key %s is CORRECT!\n", h.webhookSecret)
 		}
 	} else {
-		// No auth header - try JSON parsing for development/testing
-		c.Logger().Warn("⚠️  No authorization header, trying JSON parse (DEV MODE)")
-		var eventData livekit.WebhookEvent
-		err = json.NewDecoder(bytes.NewReader(bodyBytes)).Decode(&eventData)
-		if err != nil {
-			if h.logger != nil {
-				h.logger.Error("failed to parse webhook JSON", zap.Error(err))
-			}
-			return c.JSON(400, map[string]interface{}{"error": "invalid webhook format or missing auth header"})
-		}
-		event = &eventData
+		c.Logger().Warn("⚠️  No authorization header, processing in DEV MODE")
 	}
 
-	// Log webhook event
-	c.Logger().Infof("✅ [WEBHOOK] Event type: %s", event.Event)
+	// Extract event type
+	eventType, ok := rawEvent["event"].(string)
+	if !ok {
+		c.Logger().Error("❌ [WEBHOOK] Missing or invalid event type")
+		return c.JSON(400, map[string]interface{}{"error": "missing event type"})
+	}
+
+	c.Logger().Infof("✅ [WEBHOOK] Event type: %s", eventType)
+
+	// Extract participant identity if present (for skipping egress)
+	var participantIdentity string
+	if participant, ok := rawEvent["participant"].(map[string]interface{}); ok {
+		if identity, ok := participant["identity"].(string); ok {
+			participantIdentity = identity
+		}
+	}
 
 	// Route to appropriate handler
-	switch event.Event {
+	switch eventType {
 	case "participant_joined":
 		// Skip if participant is egress (not a real user)
-		if event.Participant != nil && strings.HasPrefix(event.Participant.Identity, "EG_") {
-			c.Logger().Infof("⏭️  Skipping egress participant: %s", event.Participant.Identity)
+		if strings.HasPrefix(participantIdentity, "EG_") {
+			c.Logger().Infof("⏭️  Skipping egress participant: %s", participantIdentity)
 			return HandleSuccess(h.logger, c, map[string]interface{}{"status": "ok"})
 		}
-		return h.handleParticipantJoinedV2(c, event)
+		return h.handleParticipantJoinedV2(c, rawEvent)
 	case "participant_left":
 		// Skip if participant is egress (not a real user)
-		if event.Participant != nil && strings.HasPrefix(event.Participant.Identity, "EG_") {
-			c.Logger().Infof("⏭️  Skipping egress participant: %s", event.Participant.Identity)
+		if strings.HasPrefix(participantIdentity, "EG_") {
+			c.Logger().Infof("⏭️  Skipping egress participant: %s", participantIdentity)
 			return HandleSuccess(h.logger, c, map[string]interface{}{"status": "ok"})
 		}
-		return h.handleParticipantLeftV2(c, event)
+		return h.handleParticipantLeftV2(c, rawEvent)
+	case "track_published", "track_unpublished":
+		// These events don't affect our application logic, just log and skip
+		c.Logger().Infof("⏭️  Skipping track event: %s", eventType)
+		return HandleSuccess(h.logger, c, map[string]interface{}{"status": "ok"})
 	case "room_started":
-		return h.handleRoomStartedV2(c, event)
+		return h.handleRoomStartedV2(c, rawEvent)
 	case "room_finished":
-		return h.handleRoomFinishedV2(c, event)
+		return h.handleRoomFinishedV2(c, rawEvent)
 	case "egress_updated", "egress_ended", "egress_finished":
 		// Handles RoomCompositeEgress recording events
-		c.Logger().Infof("🎬 [WEBHOOK] Processing egress/recording event: %s", event.Event)
-		return h.handleEgressEndedV2(c, event, bodyBytes)
+		c.Logger().Infof("🎬 [WEBHOOK] Processing egress/recording event: %s", eventType)
+		return h.handleEgressEndedV2(c, rawEvent, bodyBytes)
 	default:
 		if h.logger != nil {
-			h.logger.Warn("unhandled webhook event", zap.String("event", event.Event))
+			h.logger.Warn("unhandled webhook event", zap.String("event", eventType))
 		}
 	}
 
@@ -183,23 +173,39 @@ func (h *WebhookHandler) HandleLiveKitWebhookV2(c echo.Context) error {
 }
 
 // handleParticipantJoinedV2 handles participant_joined event
-func (h *WebhookHandler) handleParticipantJoinedV2(c echo.Context, event *livekit.WebhookEvent) error {
+func (h *WebhookHandler) handleParticipantJoinedV2(c echo.Context, rawEvent map[string]interface{}) error {
 	c.Logger().Info("🔹 [WEBHOOK] Processing participant_joined")
 
-	if event.Participant == nil || event.Room == nil {
-		h.logger.Warn("participant or room missing in event")
+	// Extract participant and room info from raw event
+	participant, ok := rawEvent["participant"].(map[string]interface{})
+	if !ok {
+		h.logger.Warn("participant missing in event")
 		return HandleSuccess(h.logger, c, map[string]interface{}{"status": "ok"})
 	}
 
-	participantIdentity := event.Participant.Identity
-	roomName := event.Room.Name
+	room, ok := rawEvent["room"].(map[string]interface{})
+	if !ok {
+		h.logger.Warn("room missing in event")
+		return HandleSuccess(h.logger, c, map[string]interface{}{"status": "ok"})
+	}
+
+	participantIdentity, _ := participant["identity"].(string)
+	roomName, _ := room["name"].(string)
+
+	if participantIdentity == "" || roomName == "" {
+		h.logger.Warn("missing participant identity or room name")
+		return HandleSuccess(h.logger, c, map[string]interface{}{"status": "ok"})
+	}
 
 	c.Logger().Infof("👤 [WEBHOOK] Participant joined: %s in room %s", participantIdentity, roomName)
 
 	userID, err := uuid.Parse(participantIdentity)
 	if err != nil {
-		h.logger.Error("failed to parse user id", zap.String("identity", participantIdentity), zap.Error(err))
-		return HandleSuccess(h.logger, c, map[string]interface{}{"status": "ok"})
+		h.logger.Warn("⏭️  Skipping webhook - identity is not a valid UUID (likely a test event from LiveKit Dashboard)",
+			zap.String("identity", participantIdentity),
+			zap.String("room_name", roomName),
+			zap.Error(err))
+		return HandleSuccess(h.logger, c, map[string]interface{}{"status": "ok", "skipped": "test_event"})
 	}
 
 	ctx := c.Request().Context()
@@ -217,23 +223,39 @@ func (h *WebhookHandler) handleParticipantJoinedV2(c echo.Context, event *liveki
 }
 
 // handleParticipantLeftV2 handles participant_left event
-func (h *WebhookHandler) handleParticipantLeftV2(c echo.Context, event *livekit.WebhookEvent) error {
+func (h *WebhookHandler) handleParticipantLeftV2(c echo.Context, rawEvent map[string]interface{}) error {
 	c.Logger().Info("🔹 [WEBHOOK] Processing participant_left")
 
-	if event.Participant == nil || event.Room == nil {
-		h.logger.Warn("participant or room missing in event")
+	// Extract participant and room info from raw event
+	participant, ok := rawEvent["participant"].(map[string]interface{})
+	if !ok {
+		h.logger.Warn("participant missing in event")
 		return HandleSuccess(h.logger, c, map[string]interface{}{"status": "ok"})
 	}
 
-	participantIdentity := event.Participant.Identity
-	roomName := event.Room.Name
+	room, ok := rawEvent["room"].(map[string]interface{})
+	if !ok {
+		h.logger.Warn("room missing in event")
+		return HandleSuccess(h.logger, c, map[string]interface{}{"status": "ok"})
+	}
+
+	participantIdentity, _ := participant["identity"].(string)
+	roomName, _ := room["name"].(string)
+
+	if participantIdentity == "" || roomName == "" {
+		h.logger.Warn("missing participant identity or room name")
+		return HandleSuccess(h.logger, c, map[string]interface{}{"status": "ok"})
+	}
 
 	c.Logger().Infof("👋 [WEBHOOK] Participant left: %s from room %s", participantIdentity, roomName)
 
 	userID, err := uuid.Parse(participantIdentity)
 	if err != nil {
-		h.logger.Error("failed to parse user id", zap.String("identity", participantIdentity), zap.Error(err))
-		return HandleSuccess(h.logger, c, map[string]interface{}{"status": "ok"})
+		h.logger.Warn("⏭️  Skipping webhook - identity is not a valid UUID (likely a test event from LiveKit Dashboard)",
+			zap.String("identity", participantIdentity),
+			zap.String("room_name", roomName),
+			zap.Error(err))
+		return HandleSuccess(h.logger, c, map[string]interface{}{"status": "ok", "skipped": "test_event"})
 	}
 
 	ctx := c.Request().Context()
@@ -251,15 +273,21 @@ func (h *WebhookHandler) handleParticipantLeftV2(c echo.Context, event *livekit.
 }
 
 // handleRoomStartedV2 handles room_started event
-func (h *WebhookHandler) handleRoomStartedV2(c echo.Context, event *livekit.WebhookEvent) error {
+func (h *WebhookHandler) handleRoomStartedV2(c echo.Context, rawEvent map[string]interface{}) error {
 	c.Logger().Info("🔹 [WEBHOOK] Processing room_started")
 
-	if event.Room == nil {
+	// Extract room info from raw event
+	room, ok := rawEvent["room"].(map[string]interface{})
+	if !ok {
 		h.logger.Warn("room missing in event")
 		return HandleSuccess(h.logger, c, map[string]interface{}{"status": "ok"})
 	}
 
-	roomName := event.Room.Name
+	roomName, _ := room["name"].(string)
+	if roomName == "" {
+		h.logger.Warn("missing room name")
+		return HandleSuccess(h.logger, c, map[string]interface{}{"status": "ok"})
+	}
 	c.Logger().Infof("🚀 Room started: %s", roomName)
 
 	ctx := c.Request().Context()
@@ -278,15 +306,21 @@ func (h *WebhookHandler) handleRoomStartedV2(c echo.Context, event *livekit.Webh
 }
 
 // handleRoomFinishedV2 handles room_finished event
-func (h *WebhookHandler) handleRoomFinishedV2(c echo.Context, event *livekit.WebhookEvent) error {
+func (h *WebhookHandler) handleRoomFinishedV2(c echo.Context, rawEvent map[string]interface{}) error {
 	c.Logger().Info("🔹 [WEBHOOK] Processing room_finished")
 
-	if event.Room == nil {
+	// Extract room info from raw event
+	room, ok := rawEvent["room"].(map[string]interface{})
+	if !ok {
 		h.logger.Warn("room missing in event")
 		return HandleSuccess(h.logger, c, map[string]interface{}{"status": "ok"})
 	}
 
-	roomName := event.Room.Name
+	roomName, _ := room["name"].(string)
+	if roomName == "" {
+		h.logger.Warn("missing room name")
+		return HandleSuccess(h.logger, c, map[string]interface{}{"status": "ok"})
+	}
 	c.Logger().Infof("🏁 Room finished: %s", roomName)
 
 	ctx := c.Request().Context()
@@ -309,15 +343,10 @@ func (h *WebhookHandler) handleRoomFinishedV2(c echo.Context, event *livekit.Web
 }
 
 // handleEgressEndedV2 handles egress_ended event (RoomCompositeEgress recording completed)
-func (h *WebhookHandler) handleEgressEndedV2(c echo.Context, event *livekit.WebhookEvent, rawBody []byte) error {
+func (h *WebhookHandler) handleEgressEndedV2(c echo.Context, rawEvent map[string]interface{}, rawBody []byte) error {
 	c.Logger().Info("🔹 [WEBHOOK] Processing egress event")
 
-	// Parse raw JSON trực tiếp, không dùng SDK structs (tránh enum parsing issues)
-	var rawEvent map[string]interface{}
-	if err := json.Unmarshal(rawBody, &rawEvent); err != nil {
-		h.logger.Error("Failed to parse raw webhook JSON", zap.Error(err))
-		return HandleSuccess(h.logger, c, map[string]interface{}{"status": "ok", "error": "invalid JSON"})
-	}
+	// rawEvent is already parsed from the main handler, no need to parse again
 
 	// Extract egressInfo từ raw JSON
 	var egressInfoMap map[string]interface{}

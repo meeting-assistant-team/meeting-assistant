@@ -54,9 +54,10 @@ func ToAuthRefreshTokenResponse(usecaseResp *auth.AuthResponse) *authDTO.Refresh
 		return nil
 	}
 	return &authDTO.RefreshTokenResponse{
-		AccessToken: usecaseResp.AccessToken,
-		ExpiresIn:   int(usecaseResp.ExpiresIn),
-		TokenType:   "Bearer",
+		AccessToken:  usecaseResp.AccessToken,
+		RefreshToken: usecaseResp.RefreshToken, // OAuth2 standard - return new refresh token
+		ExpiresIn:    int(usecaseResp.ExpiresIn),
+		TokenType:    "Bearer",
 	}
 }
 
@@ -67,8 +68,8 @@ func ToAuthResponse(usecaseResp *auth.AuthResponse) *authDTO.AuthResponse {
 	}
 
 	return &authDTO.AuthResponse{
-		AccessToken:  "",
-		RefreshToken: "",
+		AccessToken:  usecaseResp.AccessToken,
+		RefreshToken: usecaseResp.RefreshToken, // OAuth2 standard
 		ExpiresIn:    int(usecaseResp.ExpiresIn),
 		TokenType:    "Bearer",
 		User:         ToUserResponse(usecaseResp.User),

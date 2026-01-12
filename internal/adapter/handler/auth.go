@@ -122,10 +122,10 @@ func (h *Auth) GoogleCallback(c echo.Context) error {
 		return HandleError(h.logger, c, errors.ErrUnauthenticated().WithDetail("error", err.Error()))
 	}
 
-	// Create a server-side session cookie (store session ID only, session/refresh token already saved server-side)
-	sessionID := usecaseResp.SessionID
-	if sessionID == "" {
-		return HandleError(h.logger, c, errors.ErrInternal(fmt.Errorf("missing session id")))
+	// OAuth2 Standard: Set refresh_token as HttpOnly cookie (secure storage)
+	refreshToken := usecaseResp.RefreshToken
+	if refreshToken == "" {
+		return HandleError(h.logger, c, errors.ErrInternal(fmt.Errorf("missing refresh token")))
 	}
 
 	cookieDomain := h.cfg.Server.CookieDomain
@@ -134,24 +134,38 @@ func (h *Auth) GoogleCallback(c echo.Context) error {
 		cookiePath = "/v1"
 	}
 
-	// Cookie expiry equals refresh token expiry
-	sessionMaxAge := int(h.cfg.JWT.RefreshExpiry.Seconds())
-	if sessionMaxAge <= 0 {
-		sessionMaxAge = 7 * 24 * 60 * 60
+	// Refresh token cookie (7 days by default)
+	refreshMaxAge := int(h.cfg.JWT.RefreshExpiry.Seconds())
+	if refreshMaxAge <= 0 {
+		refreshMaxAge = 7 * 24 * 60 * 60
 	}
 
-	sessionCookie := &http.Cookie{
-		Name:     "session_id",
-		Value:    sessionID,
+	refreshCookie := &http.Cookie{
+		Name:     "refresh_token",
+		Value:    refreshToken,
 		Path:     cookiePath,
 		Domain:   cookieDomain,
 		HttpOnly: true,
 		Secure:   true,
-		SameSite: http.SameSiteNoneMode,
-		MaxAge:   sessionMaxAge,
+		SameSite: http.SameSiteLaxMode, // Lax for OAuth2 callback
+		MaxAge:   refreshMaxAge,
 	}
+	c.SetCookie(refreshCookie)
 
-	c.SetCookie(sessionCookie)
+	// DEPRECATED: Also set session_id cookie for backwards compatibility
+	if usecaseResp.SessionID != "" {
+		sessionCookie := &http.Cookie{
+			Name:     "session_id",
+			Value:    usecaseResp.SessionID,
+			Path:     cookiePath,
+			Domain:   cookieDomain,
+			HttpOnly: true,
+			Secure:   true,
+			SameSite: http.SameSiteNoneMode,
+			MaxAge:   refreshMaxAge,
+		}
+		c.SetCookie(sessionCookie)
+	}
 
 	// Clear oauth_state cookie (one-time use)
 	stateClearCookie := &http.Cookie{
@@ -176,118 +190,178 @@ func (h *Auth) GoogleCallback(c echo.Context) error {
 
 // RefreshToken refreshes the access token
 // @Summary      Refresh access token
-// @Description  Gets a new access token using session_id from HttpOnly cookie or header. No request body needed.
+// @Description  Gets new access and refresh tokens using refresh_token from cookie or request body. Implements OAuth2 token rotation.
 // @Tags         Authentication
+// @Accept       json
 // @Produce      json
-// @Param        session_id  header    string  false  "Session ID (alternative to cookie)"
-// @Success      200      {object}  map[string]interface{}  "Token refreshed successfully with access_token and expires_in"
-// @Failure      400      {object}  map[string]interface{}  "Invalid or missing session_id"
+// @Param        request  body      object{refresh_token=string}  false  "Refresh token (optional if cookie present)"
+// @Success      200      {object}  github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.RefreshTokenResponse  "New tokens with rotation"
+// @Failure      400      {object}  map[string]interface{}  "Invalid or missing refresh_token"
 // @Failure      401      {object}  map[string]interface{}  "Failed to refresh token"
 // @Router       /auth/refresh [post]
 func (h *Auth) RefreshToken(c echo.Context) error {
 	ctx := c.Request().Context()
 
-	var sessionIDValue string
+	var refreshToken string
 
-	// Try to get session_id from header first
-	sessionIDValue = c.Request().Header.Get("session_id")
-	if sessionIDValue == "" {
-		// Fallback to HttpOnly cookie
-		cookie, err := c.Cookie("session_id")
-		if err != nil || cookie == nil || cookie.Value == "" {
-			if h.logger != nil {
-				h.logger.Error("session_id missing from both header and cookie",
-					zap.String("header_value", c.Request().Header.Get("session_id")),
-					zap.String("cookie_err", fmt.Sprintf("%v", err)))
+	// Try to get refresh_token from HttpOnly cookie first (OAuth2 recommended)
+	cookie, err := c.Cookie("refresh_token")
+	if err == nil && cookie != nil && cookie.Value != "" {
+		refreshToken = cookie.Value
+	} else {
+		// Fallback to request body (for clients that can't use cookies)
+		var req struct {
+			RefreshToken string `json:"refresh_token"`
+		}
+		if err := c.Bind(&req); err == nil && req.RefreshToken != "" {
+			refreshToken = req.RefreshToken
+		}
+	}
+
+	// If still no refresh_token, try deprecated session_id (backwards compatibility)
+	if refreshToken == "" {
+		var sessionIDValue string
+		sessionIDValue = c.Request().Header.Get("session_id")
+		if sessionIDValue == "" {
+			cookie, err := c.Cookie("session_id")
+			if err == nil && cookie != nil && cookie.Value != "" {
+				sessionIDValue = cookie.Value
 			}
-			return HandleError(h.logger, c, errors.ErrInvalidToken())
 		}
-		sessionIDValue = cookie.Value
+		if sessionIDValue != "" {
+			sid, err := uuid.Parse(sessionIDValue)
+			if err == nil {
+				usecaseResp, err := h.oauthService.RefreshAccessTokenBySessionID(ctx, sid)
+				if err != nil {
+					return HandleError(h.logger, c, err)
+				}
+				// Legacy response (no refresh_token)
+				data := map[string]interface{}{
+					"access_token": usecaseResp.AccessToken,
+					"expires_in":   int(usecaseResp.ExpiresIn),
+				}
+				return HandleSuccess(h.logger, c, data)
+			}
+		}
 	}
 
-	if h.logger != nil {
-		h.logger.Info("session_id found",
-			zap.String("session_id", sessionIDValue))
-	}
-
-	sid, err := uuid.Parse(sessionIDValue)
-	if err != nil {
-		if h.logger != nil {
-			h.logger.Error("failed to parse session_id",
-				zap.String("session_id_value", sessionIDValue),
-				zap.Error(err))
-		}
+	if refreshToken == "" {
 		return HandleError(h.logger, c, errors.ErrInvalidToken())
 	}
 
-	usecaseResp, err := h.oauthService.RefreshAccessTokenBySessionID(ctx, sid)
+	// Call OAuth2 token refresh with rotation
+	usecaseResp, err := h.oauthService.RefreshAccessToken(ctx, refreshToken)
 	if err != nil {
 		if h.logger != nil {
-			h.logger.Error("refresh token failed",
-				zap.String("session_id", sid.String()),
-				zap.Error(err))
+			h.logger.Error("refresh token failed", zap.Error(err))
 		}
 		return HandleError(h.logger, c, err)
 	}
 
-	// Return access token JSON (no refresh token)
-	data := map[string]interface{}{
-		"access_token": usecaseResp.AccessToken,
-		"expires_in":   int(usecaseResp.ExpiresIn),
+	// Set new refresh_token as HttpOnly cookie (token rotation)
+	if usecaseResp.RefreshToken != "" {
+		cookiePath := h.cfg.Server.CookiePath
+		if cookiePath == "" {
+			cookiePath = "/v1"
+		}
+		refreshMaxAge := int(h.cfg.JWT.RefreshExpiry.Seconds())
+		if refreshMaxAge <= 0 {
+			refreshMaxAge = 7 * 24 * 60 * 60
+		}
+
+		refreshCookie := &http.Cookie{
+			Name:     "refresh_token",
+			Value:    usecaseResp.RefreshToken,
+			Path:     cookiePath,
+			Domain:   h.cfg.Server.CookieDomain,
+			HttpOnly: true,
+			Secure:   true,
+			SameSite: http.SameSiteLaxMode,
+			MaxAge:   refreshMaxAge,
+		}
+		c.SetCookie(refreshCookie)
 	}
-	return HandleSuccess(h.logger, c, data)
+
+	// Return OAuth2 standard response (both tokens in body + cookie)
+	response := presenter.ToAuthRefreshTokenResponse(usecaseResp)
+	return HandleSuccess(h.logger, c, response)
 }
 
 // Logout logs out the current user
 // @Summary      Logout user
-// @Description  Invalidates the session and logs out the user. Supports session_id cookie (preferred) or refresh_token in body (backwards compatibility).
+// @Description  Revokes refresh token and clears cookies. Supports refresh_token from cookie (preferred) or request body.
 // @Tags         Authentication
 // @Accept       json
 // @Produce      json
-// @Param        request  body      object{refresh_token=string}  false  "Refresh token (optional, only for backwards compatibility)"
+// @Param        request  body      object{refresh_token=string}  false  "Refresh token (optional if cookie present)"
 // @Success      200      {object}  map[string]string  "Logged out successfully"
-// @Failure      400      {object}  map[string]interface{}  "Missing session or invalid token"
+// @Failure      400      {object}  map[string]interface{}  "Missing refresh token"
 // @Failure      500      {object}  map[string]interface{}  "Failed to logout"
 // @Router       /auth/logout [post]
 func (h *Auth) Logout(c echo.Context) error {
 	ctx := c.Request().Context()
 
-	// Read session_id cookie
-	cookie, err := c.Cookie("session_id")
-	var sessionID uuid.UUID
-	if err == nil {
-		sessionID, err = uuid.Parse(cookie.Value)
-		if err != nil {
-			return HandleError(h.logger, c, errors.ErrInvalidArgument("Invalid session id cookie"))
-		}
+	var refreshToken string
+
+	// Try refresh_token cookie first
+	cookie, err := c.Cookie("refresh_token")
+	if err == nil && cookie != nil && cookie.Value != "" {
+		refreshToken = cookie.Value
 	} else {
-		// Fallback to body (backwards compatibility)
+		// Fallback to request body
 		var req struct {
 			RefreshToken string `json:"refresh_token"`
 		}
-		if err := c.Bind(&req); err != nil || req.RefreshToken == "" {
-			return HandleError(h.logger, c, errors.ErrInvalidArgument("Missing session or refresh token"))
+		if err := c.Bind(&req); err == nil && req.RefreshToken != "" {
+			refreshToken = req.RefreshToken
 		}
-		// Call existing logout by refresh token
-		if err := h.oauthService.Logout(ctx, req.RefreshToken); err != nil {
-			return HandleError(h.logger, c, errors.ErrInternal(err))
-		}
-
-		return HandleSuccess(h.logger, c, map[string]string{"message": "Logged out successfully"})
 	}
 
-	// Revoke session by ID
-	if err := h.oauthService.RevokeSessionByID(ctx, sessionID); err != nil {
+	// Fallback to deprecated session_id (backwards compatibility)
+	if refreshToken == "" {
+		cookie, err := c.Cookie("session_id")
+		if err == nil && cookie != nil && cookie.Value != "" {
+			sessionID, err := uuid.Parse(cookie.Value)
+			if err == nil {
+				if err := h.oauthService.RevokeSessionByID(ctx, sessionID); err != nil {
+					return HandleError(h.logger, c, errors.ErrInternal(err))
+				}
+				// Clear session cookie
+				cookiePath := h.cfg.Server.CookiePath
+				if cookiePath == "" {
+					cookiePath = "/"
+				}
+				clear := &http.Cookie{
+					Name:     "session_id",
+					Value:    "",
+					Path:     cookiePath,
+					Domain:   h.cfg.Server.CookieDomain,
+					HttpOnly: true,
+					Secure:   true,
+					MaxAge:   -1,
+				}
+				c.SetCookie(clear)
+				return HandleSuccess(h.logger, c, map[string]string{"message": "Logged out successfully"})
+			}
+		}
+	}
+
+	if refreshToken == "" {
+		return HandleError(h.logger, c, errors.ErrInvalidArgument("Missing refresh token"))
+	}
+
+	// Revoke token family (OAuth2 standard)
+	if err := h.oauthService.Logout(ctx, refreshToken); err != nil {
 		return HandleError(h.logger, c, errors.ErrInternal(err))
 	}
 
-	// Clear session cookie
+	// Clear refresh_token cookie
 	cookiePath := h.cfg.Server.CookiePath
 	if cookiePath == "" {
-		cookiePath = "/"
+		cookiePath = "/v1"
 	}
 	clear := &http.Cookie{
-		Name:     "session_id",
+		Name:     "refresh_token",
 		Value:    "",
 		Path:     cookiePath,
 		Domain:   h.cfg.Server.CookieDomain,
@@ -296,6 +370,18 @@ func (h *Auth) Logout(c echo.Context) error {
 		MaxAge:   -1,
 	}
 	c.SetCookie(clear)
+
+	// Also clear deprecated session_id cookie
+	sessionClear := &http.Cookie{
+		Name:     "session_id",
+		Value:    "",
+		Path:     cookiePath,
+		Domain:   h.cfg.Server.CookieDomain,
+		HttpOnly: true,
+		Secure:   true,
+		MaxAge:   -1,
+	}
+	c.SetCookie(sessionClear)
 
 	return HandleSuccess(h.logger, c, map[string]string{"message": "Logged out successfully"})
 }

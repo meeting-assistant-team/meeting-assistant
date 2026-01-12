@@ -14,27 +14,33 @@ import (
 
 // OAuthService handles OAuth authentication
 type OAuthService struct {
-	userRepo     repositories.UserRepository
-	sessionRepo  repositories.SessionRepository
-	google       *oauth.GoogleProvider
-	stateManager *oauth.StateManager
-	jwtManager   *jwt.Manager
+	userRepo        repositories.UserRepository
+	sessionRepo     repositories.SessionRepository
+	tokenFamilyRepo repositories.TokenFamilyRepository
+	google          *oauth.GoogleProvider
+	stateManager    *oauth.StateManager
+	pkceManager     *oauth.PKCEManager
+	jwtManager      *jwt.Manager
 }
 
 // NewOAuthService creates a new OAuth service
 func NewOAuthService(
 	userRepo repositories.UserRepository,
 	sessionRepo repositories.SessionRepository,
+	tokenFamilyRepo repositories.TokenFamilyRepository,
 	google *oauth.GoogleProvider,
 	stateManager *oauth.StateManager,
+	pkceManager *oauth.PKCEManager,
 	jwtManager *jwt.Manager,
 ) *OAuthService {
 	return &OAuthService{
-		userRepo:     userRepo,
-		sessionRepo:  sessionRepo,
-		google:       google,
-		stateManager: stateManager,
-		jwtManager:   jwtManager,
+		userRepo:        userRepo,
+		sessionRepo:     sessionRepo,
+		tokenFamilyRepo: tokenFamilyRepo,
+		google:          google,
+		stateManager:    stateManager,
+		pkceManager:     pkceManager,
+		jwtManager:      jwtManager,
 	}
 }
 
@@ -44,14 +50,25 @@ type GoogleAuthURLResponse struct {
 	State string `json:"state"`
 }
 
-// GetGoogleAuthURL generates Google OAuth URL
+// GetGoogleAuthURL generates Google OAuth URL with PKCE (RFC 7636)
 func (s *OAuthService) GetGoogleAuthURL(ctx context.Context) (*GoogleAuthURLResponse, error) {
+	// Generate state for CSRF protection
 	state, err := s.stateManager.GenerateState()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate state: %w", err)
 	}
 
-	url := s.google.GetAuthURL(state)
+	// Generate PKCE parameters for enhanced security
+	pkceParams, err := s.pkceManager.GeneratePKCEParams()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate PKCE params: %w", err)
+	}
+
+	// Store code_verifier associated with this state (needed for token exchange)
+	s.pkceManager.StorePKCEVerifier(state, pkceParams.CodeVerifier)
+
+	// Generate OAuth URL with PKCE code_challenge
+	url := s.google.GetAuthURLWithPKCE(state, pkceParams.CodeChallenge)
 
 	return &GoogleAuthURLResponse{
 		URL:   url,
@@ -72,10 +89,11 @@ type GoogleCallbackRequest struct {
 
 // AuthResponse represents the authentication response
 type AuthResponse struct {
-	User        *entities.User `json:"user"`
-	AccessToken string         `json:"access_token"`
-	ExpiresIn   int64          `json:"expires_in"`
-	SessionID   string         `json:"session_id,omitempty"`
+	User         *entities.User `json:"user"`
+	AccessToken  string         `json:"access_token"`
+	RefreshToken string         `json:"refresh_token,omitempty"` // Returned in OAuth2 standard flow
+	ExpiresIn    int64          `json:"expires_in"`
+	SessionID    string         `json:"session_id,omitempty"` // Deprecated - for backwards compatibility only
 }
 
 // HandleGoogleCallback handles the OAuth callback from Google
@@ -90,10 +108,16 @@ func (s *OAuthService) HandleGoogleCallback(ctx context.Context, req *GoogleCall
 		return nil, entities.ErrOAuthStateMismatch
 	}
 
-	// Exchange code for token
-	token, err := s.google.ExchangeCode(ctx, req.Code)
+	// Get PKCE code_verifier for this state
+	codeVerifier, found := s.pkceManager.GetPKCEVerifier(req.State)
+	if !found {
+		return nil, fmt.Errorf("PKCE code_verifier not found for state - possible CSRF attack or expired session")
+	}
+
+	// Exchange code for token WITH PKCE verification
+	token, err := s.google.ExchangeCodeWithPKCE(ctx, req.Code, codeVerifier)
 	if err != nil {
-		return nil, fmt.Errorf("failed to exchange code: %w", err)
+		return nil, fmt.Errorf("failed to exchange code with PKCE: %w", err)
 	}
 
 	// Get user info from Google
@@ -158,7 +182,7 @@ func (s *OAuthService) HandleGoogleCallback(ctx context.Context, req *GoogleCall
 		}
 	}
 
-	// Create session
+	// Generate tokens
 	accessToken, err := s.jwtManager.GenerateAccessToken(user.ID, user.Email, string(user.Role))
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate access token: %w", err)
@@ -169,46 +193,87 @@ func (s *OAuthService) HandleGoogleCallback(ctx context.Context, req *GoogleCall
 		return nil, fmt.Errorf("failed to generate refresh token: %w", err)
 	}
 
-	// Create session with raw refresh token
-	session := entities.NewSession(
+	// Create token family for rotation tracking (OAuth2 security best practice)
+	tokenFamily := entities.NewTokenFamily(
 		user.ID,
 		refreshToken,
 		time.Now().Add(s.jwtManager.GetRefreshExpiry()),
 	)
 
-	if err := s.sessionRepo.Create(ctx, session); err != nil {
-		return nil, fmt.Errorf("failed to create session: %w", err)
+	if err := s.tokenFamilyRepo.Create(ctx, tokenFamily); err != nil {
+		return nil, fmt.Errorf("failed to create token family: %w", err)
 	}
 
+	// DEPRECATED: Also create session for backwards compatibility (will be removed)
+	session := entities.NewSession(
+		user.ID,
+		refreshToken,
+		time.Now().Add(s.jwtManager.GetRefreshExpiry()),
+	)
+	if err := s.sessionRepo.Create(ctx, session); err != nil {
+		// Non-fatal - session is deprecated
+		fmt.Printf("⚠️  [DEPRECATED] Failed to create session: %v\n", err)
+	}
+
+	// Return both access_token and refresh_token per OAuth2 RFC 6749
 	return &AuthResponse{
-		User:        user,
-		AccessToken: accessToken,
-		ExpiresIn:   int64(s.jwtManager.GetAccessExpiry().Seconds()),
-		SessionID:   session.ID.String(),
+		User:         user,
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken, // OAuth2 standard - client stores this
+		ExpiresIn:    int64(s.jwtManager.GetAccessExpiry().Seconds()),
+		SessionID:    session.ID.String(), // Deprecated
 	}, nil
 }
 
-// RefreshAccessToken refreshes the access token using refresh token
+// RefreshAccessToken refreshes the access token using refresh token with rotation
+// Implements OAuth2 RFC 6749 with token rotation for security
 func (s *OAuthService) RefreshAccessToken(ctx context.Context, refreshToken string) (*AuthResponse, error) {
-	// Check if repositories are initialized
-	if s.userRepo == nil || s.sessionRepo == nil {
-		return nil, fmt.Errorf("database not initialized: cannot refresh token without DB")
-	}
-
-	// Validate refresh token
+	// Validate refresh token JWT
 	userID, err := s.jwtManager.ValidateRefreshToken(refreshToken)
 	if err != nil {
 		return nil, fmt.Errorf("invalid refresh token: %w", err)
 	}
 
-	// Check if session exists and not revoked
-	session, err := s.sessionRepo.FindByRefreshToken(ctx, refreshToken)
+	// Hash the token to lookup in database
+	tokenHash := entities.HashToken(refreshToken)
+
+	// Find token family by hash with SELECT FOR UPDATE lock
+	// This prevents race condition when multiple requests try to rotate the same token
+	tokenFamily, err := s.tokenFamilyRepo.FindByTokenHash(ctx, tokenHash)
 	if err != nil {
-		return nil, fmt.Errorf("session not found: %w", err)
+		// Token not found - could be:
+		// 1. Already rotated (used token)
+		// 2. Stolen and reused
+		// Check if this token was part of a revoked family
+		return nil, entities.ErrInvalidToken
 	}
 
-	if !session.IsValid() {
+	// Check if token is valid
+	if !tokenFamily.IsValid() {
 		return nil, entities.ErrSessionExpired
+	}
+	
+	// Double-check: If token is already revoked (by concurrent request), reject it
+	if tokenFamily.RevokedAt != nil {
+		fmt.Printf("⚠️ [REFRESH] Token already revoked (race condition handled)\n")
+		return nil, entities.ErrInvalidToken
+	}
+
+	// SECURITY: Check for token reuse (theft detection)
+	// If this token has already been rotated, it means someone is reusing an old token
+	// This is a strong indicator of token theft
+	allTokensInFamily, err := s.tokenFamilyRepo.FindByFamilyID(ctx, tokenFamily.FamilyID)
+	if err == nil && len(allTokensInFamily) > 0 {
+		// Check if there's a newer token in the family (means this one was already rotated)
+		for _, tf := range allTokensInFamily {
+			if tf.ParentTokenHash != nil && *tf.ParentTokenHash == tokenHash {
+				// This token was already rotated! Possible theft detected
+				// Revoke the entire token family
+				fmt.Printf("🚨 [SECURITY] Token reuse detected! Revoking family: %s\n", tokenFamily.FamilyID)
+				_ = s.tokenFamilyRepo.RevokeFamily(ctx, tokenFamily.FamilyID)
+				return nil, entities.ErrTokenReuse
+			}
+		}
 	}
 
 	// Find user
@@ -217,16 +282,43 @@ func (s *OAuthService) RefreshAccessToken(ctx context.Context, refreshToken stri
 		return nil, fmt.Errorf("failed to find user: %w", err)
 	}
 
-	// Generate new access token
+	// Generate NEW access token
 	newAccessToken, err := s.jwtManager.GenerateAccessToken(user.ID, user.Email, string(user.Role))
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate access token: %w", err)
 	}
 
+	// Generate NEW refresh token (rotation)
+	newRefreshToken, err := s.jwtManager.GenerateRefreshToken(user.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate refresh token: %w", err)
+	}
+
+	// Create new token family entry (rotated token)
+	newTokenFamily := tokenFamily.RotateToken(
+		newRefreshToken,
+		time.Now().Add(s.jwtManager.GetRefreshExpiry()),
+	)
+
+	if err := s.tokenFamilyRepo.Create(ctx, newTokenFamily); err != nil {
+		return nil, fmt.Errorf("failed to create rotated token: %w", err)
+	}
+
+	// Revoke old token (single use only) - IMPORTANT: Update in database!
+	tokenFamily.Revoke()
+	if err := s.tokenFamilyRepo.Update(ctx, tokenFamily); err != nil {
+		// Log error but don't fail the request - new token already created
+		fmt.Printf("⚠️ [WARNING] Failed to revoke old token in DB: %v\n", err)
+	}
+
+	fmt.Printf("✅ [REFRESH] Token rotated successfully for user: %s\n", user.ID)
+
+	// Return NEW tokens (both access and refresh per OAuth2 standard)
 	return &AuthResponse{
-		User:        user,
-		AccessToken: newAccessToken,
-		ExpiresIn:   int64(s.jwtManager.GetAccessExpiry().Seconds()),
+		User:         user,
+		AccessToken:  newAccessToken,
+		RefreshToken: newRefreshToken, // OAuth2 token rotation
+		ExpiresIn:    int64(s.jwtManager.GetAccessExpiry().Seconds()),
 	}, nil
 }
 
@@ -310,29 +402,40 @@ func (s *OAuthService) ValidateSession(ctx context.Context, token string) (*enti
 	return user, nil
 }
 
-// Logout revokes a session
+// Logout revokes a refresh token and its family
 func (s *OAuthService) Logout(ctx context.Context, refreshToken string) error {
-	// Check if repositories are initialized
-	if s.sessionRepo == nil {
-		return fmt.Errorf("database not initialized: cannot logout without DB")
-	}
+	tokenHash := entities.HashToken(refreshToken)
 
-	session, err := s.sessionRepo.FindByRefreshToken(ctx, refreshToken)
+	// Find token family
+	tokenFamily, err := s.tokenFamilyRepo.FindByTokenHash(ctx, tokenHash)
 	if err != nil {
+		// Also try legacy session-based logout (backwards compatibility)
+		if s.sessionRepo != nil {
+			session, err := s.sessionRepo.FindByRefreshToken(ctx, refreshToken)
+			if err == nil {
+				return s.sessionRepo.Revoke(ctx, session.ID)
+			}
+		}
 		return entities.ErrSessionNotFound
 	}
 
-	return s.sessionRepo.Revoke(ctx, session.ID)
+	// Revoke entire token family (all rotated tokens)
+	return s.tokenFamilyRepo.RevokeFamily(ctx, tokenFamily.FamilyID)
 }
 
-// LogoutAll revokes all sessions for a user
+// LogoutAll revokes all token families for a user
 func (s *OAuthService) LogoutAll(ctx context.Context, userID uuid.UUID) error {
-	// Check if repositories are initialized
-	if s.sessionRepo == nil {
-		return fmt.Errorf("database not initialized: cannot logout without DB")
+	// Revoke all token families
+	if err := s.tokenFamilyRepo.RevokeAllByUserID(ctx, userID); err != nil {
+		return err
 	}
 
-	return s.sessionRepo.RevokeAllByUserID(ctx, userID)
+	// Also revoke legacy sessions (backwards compatibility)
+	if s.sessionRepo != nil {
+		_ = s.sessionRepo.RevokeAllByUserID(ctx, userID)
+	}
+
+	return nil
 }
 
 // RevokeSessionByID revokes a session by its UUID

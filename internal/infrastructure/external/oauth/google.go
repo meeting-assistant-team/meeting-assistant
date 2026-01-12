@@ -54,11 +54,34 @@ func (g *GoogleProvider) GetAuthURL(state string) string {
 	)
 }
 
+// GetAuthURLWithPKCE returns the OAuth authorization URL with PKCE parameters
+// Implements RFC 7636 for enhanced security
+func (g *GoogleProvider) GetAuthURLWithPKCE(state, codeChallenge string) string {
+	return g.config.AuthCodeURL(
+		state,
+		oauth2.AccessTypeOffline,
+		oauth2.SetAuthURLParam("prompt", "consent"),
+		oauth2.SetAuthURLParam("code_challenge", codeChallenge),
+		oauth2.SetAuthURLParam("code_challenge_method", "S256"),
+	)
+}
+
 // ExchangeCode exchanges the authorization code for tokens
 func (g *GoogleProvider) ExchangeCode(ctx context.Context, code string) (*oauth2.Token, error) {
 	token, err := g.config.Exchange(ctx, code)
 	if err != nil {
 		return nil, fmt.Errorf("failed to exchange code: %w", err)
+	}
+	return token, nil
+}
+
+// ExchangeCodeWithPKCE exchanges the authorization code for tokens with PKCE verification
+// Implements RFC 7636 - the code_verifier proves we initiated the authorization request
+func (g *GoogleProvider) ExchangeCodeWithPKCE(ctx context.Context, code, codeVerifier string) (*oauth2.Token, error) {
+	token, err := g.config.Exchange(ctx, code,
+		oauth2.SetAuthURLParam("code_verifier", codeVerifier))
+	if err != nil {
+		return nil, fmt.Errorf("failed to exchange code with PKCE: %w", err)
 	}
 	return token, nil
 }

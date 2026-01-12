@@ -57,13 +57,14 @@ type RoomRepository interface {
 
 // RoomFilters represents filter options for listing rooms
 type RoomFilters struct {
-	Type      *entities.RoomType
-	Status    *entities.RoomStatus
-	HostID    *uuid.UUID
-	Search    string // Search in name, description
-	Tags      []string
-	Limit     int
-	Offset    int
-	SortBy    string // "created_at", "started_at", "name"
-	SortOrder string // "asc", "desc"
+	Type              *entities.RoomType
+	Status            *entities.RoomStatus
+	HostID            *uuid.UUID
+	ParticipantUserID *uuid.UUID // Filter rooms where user is host or participant
+	Search            string     // Search in name, description
+	Tags              []string
+	Limit             int
+	Offset            int
+	SortBy            string // "created_at", "started_at", "name"
+	SortOrder         string // "asc", "desc"
 }
