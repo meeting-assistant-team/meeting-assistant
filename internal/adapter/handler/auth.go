@@ -53,36 +53,21 @@ func (h *Auth) GoogleLogin(c echo.Context) error {
 		h.logger.Info("generated OAuth state token", zap.String("state_hash", authURL.State[:8]))
 	}
 
-	// Set state as HttpOnly cookie for CSRF verification during callback
-	cookiePath := h.cfg.Server.CookiePath
-	if cookiePath == "" {
-		cookiePath = "/v1"
-	}
-
-	stateCookie := &http.Cookie{
-		Name:     "oauth_state",
-		Value:    authURL.State,
-		Path:     cookiePath,
-		Domain:   h.cfg.Server.CookieDomain,
-		HttpOnly: true,
-		Secure:   true,
-		SameSite: http.SameSiteNoneMode,
-		MaxAge:   15 * 60, // 15 minutes, same as state expiration
-	}
-	c.SetCookie(stateCookie)
-
-	// Redirect to Google OAuth
-	return c.Redirect(http.StatusTemporaryRedirect, authURL.URL)
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"auth_url":   authURL.URL,
+		"state":      authURL.State,
+		"expires_in": 900, // 15 minutes
+	})
 }
 
 // GoogleCallback handles the OAuth callback from Google
 // @Summary      Handle Google OAuth callback
-// @Description  Processes the OAuth callback from Google and sets a HttpOnly session cookie. Redirects to frontend callback URL configured in FrontendURL setting.
+// @Description  Processes the OAuth callback from Google. Returns tokens (OAuth2 RFC 6749 compliant) and sets HttpOnly cookies.
 // @Tags         Authentication
 // @Produce      json
 // @Param        code   query     string  true  "Authorization code from Google"
 // @Param        state  query     string  true  "State parameter for CSRF protection"
-// @Success      307    {string}  string  "Redirect to frontend callback URL with session_id HttpOnly cookie"
+// @Success      200    {object}  github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.AuthResponse  "OAuth2 tokens with user info"
 // @Failure      400    {object}  map[string]interface{}  "Missing code or state parameter"
 // @Failure      401    {object}  map[string]interface{}  "Authentication failed - invalid code or state"
 // @Router       /auth/google/callback [get]
@@ -179,13 +164,33 @@ func (h *Auth) GoogleCallback(c echo.Context) error {
 	}
 	c.SetCookie(stateClearCookie)
 
-	// Redirect to frontend callback URL from config
-	redirectTarget := h.cfg.Server.FrontendURL + "/auth/callback"
+	// ✅ RFC 6749 OAuth2 Standard: Return JSON response with tokens
+	// Frontend will handle navigation to callback URL based on response
+	accessExpiry := int(h.cfg.JWT.AccessExpiry.Seconds())
+
+	authResp := presenter.ToAuthResponse(usecaseResp)
+
 	if h.logger != nil {
-		h.logger.Info("redirecting to frontend callback",
-			zap.String("redirect_url", redirectTarget))
+		h.logger.Info("OAuth2 callback successful",
+			zap.String("user_id", usecaseResp.User.ID.String()),
+			zap.String("email", usecaseResp.User.Email))
 	}
-	return c.Redirect(http.StatusTemporaryRedirect, redirectTarget)
+
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"access_token":  authResp.AccessToken,
+		"refresh_token": authResp.RefreshToken,
+		"expires_in":    accessExpiry,
+		"token_type":    "Bearer",
+		"user": map[string]interface{}{
+			"id":                usecaseResp.User.ID,
+			"email":             usecaseResp.User.Email,
+			"name":              usecaseResp.User.Name,
+			"role":              usecaseResp.User.Role,
+			"avatar_url":        usecaseResp.User.AvatarURL,
+			"is_email_verified": usecaseResp.User.IsEmailVerified,
+		},
+		"callback_url": h.cfg.Server.FrontendURL + "/auth/callback",
+	})
 }
 
 // RefreshToken refreshes the access token
@@ -350,8 +355,15 @@ func (h *Auth) Logout(c echo.Context) error {
 		return HandleError(h.logger, c, errors.ErrInvalidArgument("Missing refresh token"))
 	}
 
-	// Revoke token family (OAuth2 standard)
-	if err := h.oauthService.Logout(ctx, refreshToken); err != nil {
+	// Extract access token from Authorization header (if present)
+	var accessToken string
+	authHeader := c.Request().Header.Get("Authorization")
+	if authHeader != "" && len(authHeader) > 7 && authHeader[:7] == "Bearer " {
+		accessToken = authHeader[7:]
+	}
+
+	// Revoke token family and blacklist access token (OAuth2 standard)
+	if err := h.oauthService.Logout(ctx, refreshToken, accessToken); err != nil {
 		return HandleError(h.logger, c, errors.ErrInternal(err))
 	}
 

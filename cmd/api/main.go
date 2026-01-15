@@ -107,6 +107,14 @@ func main() {
 	log.Println("📦 Initializing in-memory cache...")
 	memoryStore := cache.NewMemoryStore()
 
+	// Initialize Redis client for access token blacklist
+	log.Println("📦 Initializing Redis client for token blacklist...")
+	redisClient, err := cache.NewRedisClient(cfg)
+	if err != nil {
+		log.Fatalf("Failed to connect to Redis: %v", err)
+	}
+	defer redisClient.Close()
+
 	// Initialize repositories
 	log.Println("⚙️  Initializing repositories...")
 	userRepo := repository.NewUserRepository(db)
@@ -167,6 +175,7 @@ func main() {
 		stateManager,
 		pkceManager, // PKCE support for enhanced security
 		jwtManager,
+		redisClient, // Redis client for token blacklist
 	)
 
 	// Initialize auth handler

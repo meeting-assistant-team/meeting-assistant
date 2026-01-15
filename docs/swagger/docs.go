@@ -26,7 +26,7 @@ const docTemplate = `{
     "paths": {
         "/auth/google/callback": {
             "get": {
-                "description": "Processes the OAuth callback from Google and sets a HttpOnly session cookie. Redirects to frontend callback URL configured in FrontendURL setting.",
+                "description": "Processes the OAuth callback from Google. Returns tokens (OAuth2 RFC 6749 compliant) and sets HttpOnly cookies.",
                 "produces": [
                     "application/json"
                 ],
@@ -51,10 +51,10 @@ const docTemplate = `{
                     }
                 ],
                 "responses": {
-                    "307": {
-                        "description": "Redirect to frontend callback URL with session_id HttpOnly cookie",
+                    "200": {
+                        "description": "OAuth2 tokens with user info",
                         "schema": {
-                            "type": "string"
+                            "$ref": "#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.AuthResponse"
                         }
                     },
                     "400": {
@@ -103,7 +103,7 @@ const docTemplate = `{
         },
         "/auth/logout": {
             "post": {
-                "description": "Invalidates the session and logs out the user. Supports session_id cookie (preferred) or refresh_token in body (backwards compatibility).",
+                "description": "Revokes refresh token and clears cookies. Supports refresh_token from cookie (preferred) or request body.",
                 "consumes": [
                     "application/json"
                 ],
@@ -116,7 +116,7 @@ const docTemplate = `{
                 "summary": "Logout user",
                 "parameters": [
                     {
-                        "description": "Refresh token (optional, only for backwards compatibility)",
+                        "description": "Refresh token (optional if cookie present)",
                         "name": "request",
                         "in": "body",
                         "schema": {
@@ -140,7 +140,7 @@ const docTemplate = `{
                         }
                     },
                     "400": {
-                        "description": "Missing session or invalid token",
+                        "description": "Missing refresh token",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -190,7 +190,10 @@ const docTemplate = `{
         },
         "/auth/refresh": {
             "post": {
-                "description": "Gets a new access token using session_id from HttpOnly cookie or header. No request body needed.",
+                "description": "Gets new access and refresh tokens using refresh_token from cookie or request body. Implements OAuth2 token rotation.",
+                "consumes": [
+                    "application/json"
+                ],
                 "produces": [
                     "application/json"
                 ],
@@ -200,22 +203,28 @@ const docTemplate = `{
                 "summary": "Refresh access token",
                 "parameters": [
                     {
-                        "type": "string",
-                        "description": "Session ID (alternative to cookie)",
-                        "name": "session_id",
-                        "in": "header"
+                        "description": "Refresh token (optional if cookie present)",
+                        "name": "request",
+                        "in": "body",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "refresh_token": {
+                                    "type": "string"
+                                }
+                            }
+                        }
                     }
                 ],
                 "responses": {
                     "200": {
-                        "description": "Token refreshed successfully with access_token and expires_in",
+                        "description": "New tokens with rotation",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": true
+                            "$ref": "#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.RefreshTokenResponse"
                         }
                     },
                     "400": {
-                        "description": "Invalid or missing session_id",
+                        "description": "Invalid or missing refresh_token",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -2050,6 +2059,46 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "submitted_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.AuthResponse": {
+            "type": "object",
+            "properties": {
+                "access_token": {
+                    "type": "string"
+                },
+                "expires_in": {
+                    "description": "seconds",
+                    "type": "integer"
+                },
+                "refresh_token": {
+                    "type": "string"
+                },
+                "token_type": {
+                    "description": "\"Bearer\"",
+                    "type": "string"
+                },
+                "user": {
+                    "$ref": "#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.UserResponse"
+                }
+            }
+        },
+        "github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.RefreshTokenResponse": {
+            "type": "object",
+            "properties": {
+                "access_token": {
+                    "type": "string"
+                },
+                "expires_in": {
+                    "type": "integer"
+                },
+                "refresh_token": {
+                    "description": "OAuth2 standard - return new refresh token after rotation",
+                    "type": "string"
+                },
+                "token_type": {
                     "type": "string"
                 }
             }

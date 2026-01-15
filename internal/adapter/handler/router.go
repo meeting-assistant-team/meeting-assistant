@@ -56,6 +56,7 @@ func (rt *Router) Setup(e *echo.Echo) {
 
 	// Setup route groups
 	rt.setupAuthRoutes(v1)
+	rt.setupOAuthCallbackRoutes(v1)
 	rt.setupRoomRoutes(v1)
 	rt.setupMeetingRoutes(v1)
 	rt.setupInvitationRoutes(v1)
@@ -77,7 +78,6 @@ func (rt *Router) setupAuthRoutes(g *echo.Group) {
 	if rt.authHandler != nil {
 		// Use Echo handlers directly
 		authGroup.GET("/google/login", rt.authHandler.GoogleLogin)
-		authGroup.GET("/google/callback", rt.authHandler.GoogleCallback)
 		authGroup.POST("/refresh", rt.authHandler.RefreshToken)
 		authGroup.POST("/logout", rt.authHandler.Logout)
 		authGroup.GET("/me", rt.authHandler.Me)
@@ -85,11 +85,22 @@ func (rt *Router) setupAuthRoutes(g *echo.Group) {
 	} else {
 		// Placeholder routes when handler is not initialized
 		authGroup.GET("/google/login", rt.notImplemented)
-		authGroup.GET("/google/callback", rt.notImplemented)
 		authGroup.POST("/refresh", rt.notImplemented)
 		authGroup.POST("/logout", rt.notImplemented)
 		authGroup.GET("/me", rt.notImplemented)
 		authGroup.POST("/test/token", rt.notImplemented)
+	}
+}
+
+// setupOAuthCallbackRoutes configures PUBLIC OAuth callback routes (NO AUTH required)
+// These endpoints handle OAuth provider callbacks and should NOT require authentication
+func (rt *Router) setupOAuthCallbackRoutes(g *echo.Group) {
+	authGroup := g.Group("/auth")
+
+	if rt.authHandler != nil {
+		authGroup.GET("/google/callback", rt.authHandler.GoogleCallback)
+	} else {
+		authGroup.GET("/google/callback", rt.notImplemented)
 	}
 }
 
