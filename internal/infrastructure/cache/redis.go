@@ -7,38 +7,39 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/johnquangdev/meeting-assistant/pkg/config"
 	"github.com/redis/go-redis/v9"
 )
 
-// RedisClient wraps redis client (DEPRECATED - using in-memory store instead)
+// RedisClient wraps redis client for access token blacklist
 type RedisClient struct {
 	client *redis.Client
 }
 
-// NewRedisClient creates a new Redis client (DEPRECATED - not used anymore)
-// func NewRedisClient(cfg *config.Config) (*RedisClient, error) {
-// 	client := redis.NewClient(&redis.Options{
-// 		Addr:           cfg.GetRedisAddr(),
-// 		Password:       cfg.Redis.Password,
-// 		DB:             cfg.Redis.DB,
-// 		Protocol:       2,  // Use RESP2 protocol
-// 		IdentitySuffix: "", // Disable client tracking to avoid warnings
-// 	})
+// NewRedisClient creates a new Redis client for token blacklist
+func NewRedisClient(cfg *config.Config) (*RedisClient, error) {
+	client := redis.NewClient(&redis.Options{
+		Addr:           cfg.GetRedisAddr(),
+		Password:       cfg.Redis.Password,
+		DB:             cfg.Redis.DB,
+		Protocol:       2,  // Use RESP2 protocol
+		IdentitySuffix: "", // Disable client tracking to avoid warnings
+	})
 
-// 	// Test connection
-// 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-// 	defer cancel()
+	// Test connection
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
-// 	if err := client.Ping(ctx).Err(); err != nil {
-// 		return nil, fmt.Errorf("failed to connect to Redis: %w", err)
-// 	}
+	if err := client.Ping(ctx).Err(); err != nil {
+		return nil, fmt.Errorf("failed to connect to Redis: %w", err)
+	}
 
-// 	log.Println("✅ Redis connected successfully")
+	log.Println("✅ Redis connected successfully")
 
-// 	return &RedisClient{
-// 		client: client,
-// 	}, nil
-// }
+	return &RedisClient{
+		client: client,
+	}, nil
+}
 
 // Set stores a value in Redis with expiration
 func (r *RedisClient) Set(ctx context.Context, key string, value interface{}, expiration time.Duration) error {
@@ -104,5 +105,29 @@ func (r *RedisClient) GetAccessToken(ctx context.Context, userID uuid.UUID) (str
 // DeleteAccessToken deletes the access token from Redis
 func (r *RedisClient) DeleteAccessToken(ctx context.Context, userID uuid.UUID) error {
 	key := fmt.Sprintf("access_token:%s", userID.String())
+	return r.Delete(ctx, key)
+}
+
+// AddToBlacklist adds an access token to the blacklist with TTL matching token expiration
+// This ensures revoked tokens cannot be used even before they naturally expire
+func (r *RedisClient) AddToBlacklist(ctx context.Context, accessToken string, expiration time.Duration) error {
+	key := fmt.Sprintf("blacklist:%s", accessToken)
+	// Store with "1" as value (we only care about key existence)
+	return r.Set(ctx, key, "1", expiration)
+}
+
+// IsBlacklisted checks if an access token is in the blacklist
+func (r *RedisClient) IsBlacklisted(ctx context.Context, accessToken string) (bool, error) {
+	key := fmt.Sprintf("blacklist:%s", accessToken)
+	count, err := r.Exists(ctx, key)
+	if err != nil {
+		return false, fmt.Errorf("failed to check blacklist: %w", err)
+	}
+	return count > 0, nil
+}
+
+// RemoveFromBlacklist removes a token from the blacklist (mainly for testing)
+func (r *RedisClient) RemoveFromBlacklist(ctx context.Context, accessToken string) error {
+	key := fmt.Sprintf("blacklist:%s", accessToken)
 	return r.Delete(ctx, key)
 }

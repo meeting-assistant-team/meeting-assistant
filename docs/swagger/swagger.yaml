@@ -136,6 +136,33 @@ definitions:
       submitted_at:
         type: string
     type: object
+  github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.AuthResponse:
+    properties:
+      access_token:
+        type: string
+      expires_in:
+        description: seconds
+        type: integer
+      refresh_token:
+        type: string
+      token_type:
+        description: '"Bearer"'
+        type: string
+      user:
+        $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.UserResponse'
+    type: object
+  github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.RefreshTokenResponse:
+    properties:
+      access_token:
+        type: string
+      expires_in:
+        type: integer
+      refresh_token:
+        description: OAuth2 standard - return new refresh token after rotation
+        type: string
+      token_type:
+        type: string
+    type: object
   github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.UserResponse:
     properties:
       avatar_url:
@@ -445,8 +472,8 @@ info:
 paths:
   /auth/google/callback:
     get:
-      description: Processes the OAuth callback from Google and sets a HttpOnly session
-        cookie. Redirects to frontend callback URL configured in FrontendURL setting.
+      description: Processes the OAuth callback from Google. Returns tokens (OAuth2
+        RFC 6749 compliant) and sets HttpOnly cookies.
       parameters:
       - description: Authorization code from Google
         in: query
@@ -461,11 +488,10 @@ paths:
       produces:
       - application/json
       responses:
-        "307":
-          description: Redirect to frontend callback URL with session_id HttpOnly
-            cookie
+        "200":
+          description: OAuth2 tokens with user info
           schema:
-            type: string
+            $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.AuthResponse'
         "400":
           description: Missing code or state parameter
           schema:
@@ -502,10 +528,10 @@ paths:
     post:
       consumes:
       - application/json
-      description: Invalidates the session and logs out the user. Supports session_id
-        cookie (preferred) or refresh_token in body (backwards compatibility).
+      description: Revokes refresh token and clears cookies. Supports refresh_token
+        from cookie (preferred) or request body.
       parameters:
-      - description: Refresh token (optional, only for backwards compatibility)
+      - description: Refresh token (optional if cookie present)
         in: body
         name: request
         schema:
@@ -523,7 +549,7 @@ paths:
               type: string
             type: object
         "400":
-          description: Missing session or invalid token
+          description: Missing refresh token
           schema:
             additionalProperties: true
             type: object
@@ -558,23 +584,28 @@ paths:
       - Authentication
   /auth/refresh:
     post:
-      description: Gets a new access token using session_id from HttpOnly cookie or
-        header. No request body needed.
+      consumes:
+      - application/json
+      description: Gets new access and refresh tokens using refresh_token from cookie
+        or request body. Implements OAuth2 token rotation.
       parameters:
-      - description: Session ID (alternative to cookie)
-        in: header
-        name: session_id
-        type: string
+      - description: Refresh token (optional if cookie present)
+        in: body
+        name: request
+        schema:
+          properties:
+            refresh_token:
+              type: string
+          type: object
       produces:
       - application/json
       responses:
         "200":
-          description: Token refreshed successfully with access_token and expires_in
+          description: New tokens with rotation
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_auth.RefreshTokenResponse'
         "400":
-          description: Invalid or missing session_id
+          description: Invalid or missing refresh_token
           schema:
             additionalProperties: true
             type: object

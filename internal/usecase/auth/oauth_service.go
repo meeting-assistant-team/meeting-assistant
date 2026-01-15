@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/johnquangdev/meeting-assistant/internal/domain/entities"
 	"github.com/johnquangdev/meeting-assistant/internal/domain/repositories"
+	"github.com/johnquangdev/meeting-assistant/internal/infrastructure/cache"
 	"github.com/johnquangdev/meeting-assistant/internal/infrastructure/external/oauth"
 	"github.com/johnquangdev/meeting-assistant/pkg/jwt"
 )
@@ -21,6 +22,7 @@ type OAuthService struct {
 	stateManager    *oauth.StateManager
 	pkceManager     *oauth.PKCEManager
 	jwtManager      *jwt.Manager
+	redisClient     *cache.RedisClient
 }
 
 // NewOAuthService creates a new OAuth service
@@ -32,6 +34,7 @@ func NewOAuthService(
 	stateManager *oauth.StateManager,
 	pkceManager *oauth.PKCEManager,
 	jwtManager *jwt.Manager,
+	redisClient *cache.RedisClient,
 ) *OAuthService {
 	return &OAuthService{
 		userRepo:        userRepo,
@@ -41,6 +44,7 @@ func NewOAuthService(
 		stateManager:    stateManager,
 		pkceManager:     pkceManager,
 		jwtManager:      jwtManager,
+		redisClient:     redisClient,
 	}
 }
 
@@ -252,7 +256,7 @@ func (s *OAuthService) RefreshAccessToken(ctx context.Context, refreshToken stri
 	if !tokenFamily.IsValid() {
 		return nil, entities.ErrSessionExpired
 	}
-	
+
 	// Double-check: If token is already revoked (by concurrent request), reject it
 	if tokenFamily.RevokedAt != nil {
 		fmt.Printf("⚠️ [REFRESH] Token already revoked (race condition handled)\n")
@@ -376,11 +380,22 @@ func (s *OAuthService) RefreshAccessTokenBySessionID(ctx context.Context, sessio
 	}, nil
 }
 
-// ValidateSession validates a session token
+// ValidateSession validates a session token and checks if it's blacklisted
 func (s *OAuthService) ValidateSession(ctx context.Context, token string) (*entities.User, error) {
 	// Check if repositories are initialized
 	if s.userRepo == nil {
 		return nil, fmt.Errorf("database not initialized: cannot validate session without DB")
+	}
+
+	// Check if token is blacklisted in Redis
+	if s.redisClient != nil {
+		isBlacklisted, err := s.redisClient.IsBlacklisted(ctx, token)
+		if err != nil {
+			// Log error but don't fail validation - Redis issues shouldn't block auth
+			fmt.Printf("Warning: failed to check token blacklist: %v\n", err)
+		} else if isBlacklisted {
+			return nil, entities.ErrInvalidToken
+		}
 	}
 
 	// Validate JWT access token
@@ -402,8 +417,8 @@ func (s *OAuthService) ValidateSession(ctx context.Context, token string) (*enti
 	return user, nil
 }
 
-// Logout revokes a refresh token and its family
-func (s *OAuthService) Logout(ctx context.Context, refreshToken string) error {
+// Logout revokes a refresh token and its family, and blacklists the access token
+func (s *OAuthService) Logout(ctx context.Context, refreshToken, accessToken string) error {
 	tokenHash := entities.HashToken(refreshToken)
 
 	// Find token family
@@ -417,6 +432,22 @@ func (s *OAuthService) Logout(ctx context.Context, refreshToken string) error {
 			}
 		}
 		return entities.ErrSessionNotFound
+	}
+
+	// Blacklist the access token in Redis to prevent further use
+	if accessToken != "" && s.redisClient != nil {
+		// Get remaining TTL from JWT to set appropriate expiration
+		claims, err := s.jwtManager.ValidateAccessToken(accessToken)
+		if err == nil && claims.ExpiresAt != nil {
+			// Calculate remaining time until expiration
+			expiration := time.Until(claims.ExpiresAt.Time)
+			if expiration > 0 {
+				if err := s.redisClient.AddToBlacklist(ctx, accessToken, expiration); err != nil {
+					// Log error but don't fail logout - refresh token revocation is more critical
+					fmt.Printf("Warning: failed to blacklist access token: %v\n", err)
+				}
+			}
+		}
 	}
 
 	// Revoke entire token family (all rotated tokens)

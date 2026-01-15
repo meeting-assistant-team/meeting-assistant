@@ -19,6 +19,7 @@ type Config struct {
 	LiveKit  LiveKitConfig
 	Assembly AssemblyAIConfig
 	Groq     GroqConfig
+	Redis    RedisConfig
 }
 
 // ServerConfig holds server configuration
@@ -105,6 +106,14 @@ type GroqConfig struct {
 	BaseURL string `envconfig:"GROQ_API_URL"`
 }
 
+// RedisConfig holds Redis configuration
+type RedisConfig struct {
+	Host     string `envconfig:"REDIS_HOST" default:"localhost"`
+	Port     string `envconfig:"REDIS_PORT" default:"6379"`
+	Password string `envconfig:"REDIS_PASSWORD"`
+	DB       int    `envconfig:"REDIS_DB" default:"0"`
+}
+
 // Load loads configuration from environment variables
 func Load() (*Config, error) {
 	config := &Config{}
@@ -146,4 +155,9 @@ func (s *StorageConfig) GetS3Endpoint() string {
 	}
 
 	return protocol + s.Endpoint
+}
+
+// GetRedisAddr returns the Redis address in host:port format
+func (c *Config) GetRedisAddr() string {
+	return fmt.Sprintf("%s:%s", c.Redis.Host, c.Redis.Port)
 }
