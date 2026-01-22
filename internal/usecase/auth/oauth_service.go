@@ -20,7 +20,6 @@ type OAuthService struct {
 	tokenFamilyRepo repositories.TokenFamilyRepository
 	google          *oauth.GoogleProvider
 	stateManager    *oauth.StateManager
-	pkceManager     *oauth.PKCEManager
 	jwtManager      *jwt.Manager
 	redisClient     *cache.RedisClient
 }
@@ -32,7 +31,6 @@ func NewOAuthService(
 	tokenFamilyRepo repositories.TokenFamilyRepository,
 	google *oauth.GoogleProvider,
 	stateManager *oauth.StateManager,
-	pkceManager *oauth.PKCEManager,
 	jwtManager *jwt.Manager,
 	redisClient *cache.RedisClient,
 ) *OAuthService {
@@ -42,7 +40,6 @@ func NewOAuthService(
 		tokenFamilyRepo: tokenFamilyRepo,
 		google:          google,
 		stateManager:    stateManager,
-		pkceManager:     pkceManager,
 		jwtManager:      jwtManager,
 		redisClient:     redisClient,
 	}
@@ -54,7 +51,7 @@ type GoogleAuthURLResponse struct {
 	State string `json:"state"`
 }
 
-// GetGoogleAuthURL generates Google OAuth URL with PKCE (RFC 7636)
+// GetGoogleAuthURL generates Google OAuth URL with state-based CSRF protection
 func (s *OAuthService) GetGoogleAuthURL(ctx context.Context) (*GoogleAuthURLResponse, error) {
 	// Generate state for CSRF protection
 	state, err := s.stateManager.GenerateState()
@@ -62,17 +59,8 @@ func (s *OAuthService) GetGoogleAuthURL(ctx context.Context) (*GoogleAuthURLResp
 		return nil, fmt.Errorf("failed to generate state: %w", err)
 	}
 
-	// Generate PKCE parameters for enhanced security
-	pkceParams, err := s.pkceManager.GeneratePKCEParams()
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate PKCE params: %w", err)
-	}
-
-	// Store code_verifier associated with this state (needed for token exchange)
-	s.pkceManager.StorePKCEVerifier(state, pkceParams.CodeVerifier)
-
-	// Generate OAuth URL with PKCE code_challenge
-	url := s.google.GetAuthURLWithPKCE(state, pkceParams.CodeChallenge)
+	// Generate OAuth URL with state (no PKCE)
+	url := s.google.GetAuthURL(state)
 
 	return &GoogleAuthURLResponse{
 		URL:   url,
@@ -107,21 +95,15 @@ func (s *OAuthService) HandleGoogleCallback(ctx context.Context, req *GoogleCall
 		return nil, fmt.Errorf("database not initialized: userRepo=%v, sessionRepo=%v", s.userRepo != nil, s.sessionRepo != nil)
 	}
 
-	// Validate state
+	// Validate state (CSRF protection)
 	if !s.stateManager.ValidateState(req.State) {
 		return nil, entities.ErrOAuthStateMismatch
 	}
 
-	// Get PKCE code_verifier for this state
-	codeVerifier, found := s.pkceManager.GetPKCEVerifier(req.State)
-	if !found {
-		return nil, fmt.Errorf("PKCE code_verifier not found for state - possible CSRF attack or expired session")
-	}
-
-	// Exchange code for token WITH PKCE verification
-	token, err := s.google.ExchangeCodeWithPKCE(ctx, req.Code, codeVerifier)
+	// Exchange code for token (no PKCE)
+	token, err := s.google.ExchangeCode(ctx, req.Code)
 	if err != nil {
-		return nil, fmt.Errorf("failed to exchange code with PKCE: %w", err)
+		return nil, fmt.Errorf("failed to exchange code: %w", err)
 	}
 
 	// Get user info from Google

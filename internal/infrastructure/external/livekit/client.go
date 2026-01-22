@@ -92,7 +92,7 @@ func NewClient(url, apiKey, apiSecret string, useMock bool) Client {
 func (c *realClient) CreateRoom(ctx context.Context, name string, options *CreateRoomOptions) (*RoomInfo, error) {
 	if options == nil {
 		options = &CreateRoomOptions{
-			MaxParticipants:  10,
+			MaxParticipants:  5,
 			EmptyTimeout:     300, // 5 minutes
 			DepartureTimeout: 30,  // 30 seconds
 		}

@@ -50,7 +50,9 @@ func (h *Auth) GoogleLogin(c echo.Context) error {
 	// State is stored in-memory by stateManager with 15 minute expiration
 	// Also stored as HttpOnly cookie for additional CSRF protection verification
 	if h.logger != nil {
-		h.logger.Info("generated OAuth state token", zap.String("state_hash", authURL.State[:8]))
+		h.logger.Info("generated OAuth state token",
+			zap.String("state_hash", authURL.State[:8]),
+			zap.String("auth_url", authURL.URL)) // Debug: log full URL
 	}
 
 	return c.JSON(http.StatusOK, map[string]interface{}{

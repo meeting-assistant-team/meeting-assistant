@@ -152,10 +152,6 @@ func main() {
 	log.Println("🔒 Initializing state manager...")
 	stateManager := oauth.NewStateManager(memoryStore)
 
-	// Initialize PKCE manager for OAuth2 security (RFC 7636)
-	log.Println("🛡️  Initializing PKCE manager...")
-	pkceManager := oauth.NewPKCEManager(memoryStore)
-
 	// Initialize JWT manager
 	log.Println("🔑 Initializing JWT manager...")
 	jwtManager := jwt.NewManager(
@@ -172,8 +168,7 @@ func main() {
 		sessionRepo,
 		tokenFamilyRepo, // OAuth2 token rotation support
 		googleProvider,
-		stateManager,
-		pkceManager, // PKCE support for enhanced security
+		stateManager, // State-based CSRF protection (no PKCE)
 		jwtManager,
 		redisClient, // Redis client for token blacklist
 	)
