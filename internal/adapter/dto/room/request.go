@@ -9,7 +9,7 @@ type CreateRoomRequest struct {
 	Name               string                 `json:"name" validate:"required,min=1,max=255"`
 	Description        *string                `json:"description,omitempty"`
 	Type               string                 `json:"type" validate:"required,oneof=public private scheduled"`
-	MaxParticipants    int                    `json:"max_participants" validate:"required,min=2,max=100"`
+	MaxParticipants    int                    `json:"max_participants" validate:"required,min=2,max=5"`
 	Settings           map[string]interface{} `json:"settings,omitempty"`
 	ScheduledStartTime *time.Time             `json:"scheduled_start_time,omitempty"`
 	ScheduledEndTime   *time.Time             `json:"scheduled_end_time,omitempty"`
@@ -19,7 +19,7 @@ type CreateRoomRequest struct {
 type UpdateRoomRequest struct {
 	Name               *string                `json:"name,omitempty" validate:"omitempty,min=1,max=255"`
 	Description        *string                `json:"description,omitempty"`
-	MaxParticipants    *int                   `json:"max_participants,omitempty" validate:"omitempty,min=2,max=100"`
+	MaxParticipants    *int                   `json:"max_participants,omitempty" validate:"omitempty,min=2,max=5"`
 	Settings           map[string]interface{} `json:"settings,omitempty"`
 	ScheduledStartTime *time.Time             `json:"scheduled_start_time,omitempty"`
 	ScheduledEndTime   *time.Time             `json:"scheduled_end_time,omitempty"`
@@ -33,7 +33,7 @@ type ListRoomsRequest struct {
 	Tags      []string `query:"tags"`
 	Page      int      `query:"page" validate:"min=1"`
 	PageSize  int      `query:"page_size" validate:"min=1,max=5"`
-	SortBy    string   `query:"sort_by" validate:"omitempty,oneof=created_at started_at name"`
+	SortBy    string   `query:"sort_by" validate:"omitempty,oneof=created_at started_at ended_at name"`
 	SortOrder string   `query:"sort_order" validate:"omitempty,oneof=asc desc"`
 }
 

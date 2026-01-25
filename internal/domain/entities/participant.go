@@ -17,17 +17,38 @@ const (
 	ParticipantRoleGuest       ParticipantRole = "guest"
 )
 
-// ParticipantStatus represents the status of a participant
+// ParticipantStatus represents the status of a participant in their room lifecycle
 type ParticipantStatus string
 
 const (
-	ParticipantStatusInvited  ParticipantStatus = "invited"
-	ParticipantStatusWaiting  ParticipantStatus = "waiting"
-	ParticipantStatusJoined   ParticipantStatus = "joined"
-	ParticipantStatusLeft     ParticipantStatus = "left"
-	ParticipantStatusRemoved  ParticipantStatus = "removed"
+	// ParticipantStatusInvited: User has been invited to the room but hasn't responded yet
+	// Used when: Host sends invitation via email or in-app notification
+	ParticipantStatusInvited ParticipantStatus = "invited"
+
+	// ParticipantStatusWaiting: User is in the waiting room, pending host approval
+	// Used when: Room has waiting room enabled and user is waiting for host to admit them
+	ParticipantStatusWaiting ParticipantStatus = "waiting"
+
+	// ParticipantStatusJoined: User is actively in the room (connected to LiveKit)
+	// Used when: User successfully joined the meeting and is currently present
+	ParticipantStatusJoined ParticipantStatus = "joined"
+
+	// ParticipantStatusLeft: User has left the room normally (voluntary exit)
+	// Used when: User clicks "Leave" button or closes the meeting window
+	ParticipantStatusLeft ParticipantStatus = "left"
+
+	// ParticipantStatusRemoved: User was forcibly removed by host/co-host
+	// Used when: Host kicks out a participant (includes removed_by and removal_reason)
+	ParticipantStatusRemoved ParticipantStatus = "removed"
+
+	// ParticipantStatusDeclined: User explicitly declined the invitation
+	// Used when: User clicks "Decline" on invitation notification/email
 	ParticipantStatusDeclined ParticipantStatus = "declined"
-	ParticipantStatusDenied   ParticipantStatus = "denied" // Reserved for future "block" feature - currently unused (deny = delete record)
+
+	// ParticipantStatusDenied: Host denied user's request to join (waiting room rejection)
+	// Reserved for future "block" feature - currently unused (deny = delete participant record)
+	// Used when: Host clicks "Deny" on waiting room request
+	ParticipantStatusDenied ParticipantStatus = "denied"
 )
 
 // Participant represents a user's participation in a room

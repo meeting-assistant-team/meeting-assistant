@@ -139,12 +139,12 @@ func (h *Room) GetRoom(c echo.Context) error {
 // @Produce      json
 // @Security     BearerAuth
 // @Param        page       query     int     false  "Page number (default: 1)"
-// @Param        page_size  query     int     false  "Items per page (default: 20)"
+// @Param        page_size  query     int     false  "Items per page (default: 20, max: 100)"
 // @Param        type       query     string  false  "Room type filter (public/private/scheduled)"
 // @Param        status     query     string  false  "Room status filter (scheduled/active/ended/cancelled)"
 // @Param        search     query     string  false  "Search by room name"
 // @Param        tags       query     array   false  "Filter by tags"
-// @Param        sort_by    query     string  false  "Sort field (created_at/start_time/participant_count)"
+// @Param        sort_by    query     string  false  "Sort field (created_at/started_at/ended_at/name)"
 // @Param        sort_order query     string  false  "Sort order (asc/desc)"
 // @Success      200        {object}  room.RoomListResponse  "List of rooms"
 // @Failure      400        {object}  map[string]interface{}  "Invalid request"
@@ -177,7 +177,7 @@ func (h *Room) ListRooms(c echo.Context) error {
 		}
 	}
 	if req.PageSize == 0 {
-		req.PageSize = 20
+		req.PageSize = 5
 	}
 
 	req.SortBy = c.QueryParam("sort_by")

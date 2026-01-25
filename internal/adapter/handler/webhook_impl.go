@@ -3,17 +3,13 @@ package handler
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"io"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
-	"github.com/livekit/protocol/auth"
-	"github.com/livekit/protocol/webhook"
 	"go.uber.org/zap"
 
 	"github.com/johnquangdev/meeting-assistant/internal/domain/entities"
@@ -76,47 +72,47 @@ func (h *WebhookHandler) HandleLiveKitWebhookV2(c echo.Context) error {
 	}
 
 	// Get authorization header for optional signature validation
-	authHeader := c.Request().Header.Get("Authorization")
-	c.Logger().Infof("🔐 [WEBHOOK] Authorization header present: %v", authHeader != "")
+	//authHeader := c.Request().Header.Get("Authorization")
+	//c.Logger().Infof("🔐 [WEBHOOK] Authorization header present: %v", authHeader != "")
 
 	// Optional: Validate signature in production (currently in dev mode, we accept without validation)
-	if authHeader != "" {
-		// Debug: Decode JWT header to see key ID
-		parts := strings.Split(authHeader, ".")
-		if len(parts) >= 1 {
-			headerBytes, err := base64.RawURLEncoding.DecodeString(parts[0])
-			if err == nil {
-				fmt.Printf("\n🔍 [JWT DEBUG] Header: %s\n\n", string(headerBytes))
-			}
-		}
-		// Try to validate signature using webhook secret (NOT API credentials)
-		// LiveKit signs webhooks with the Webhook Signing Key from Dashboard
-		authProvider := auth.NewSimpleKeyProvider(h.livekitAPIKey, h.livekitSecret)
-		fmt.Printf("🔑 [WEBHOOK] Validating với keyID: %s, secret: %s...\n", h.livekitAPIKey, h.livekitSecret[:10])
-		_, validationErr := webhook.ReceiveWebhookEvent(c.Request(), authProvider)
+	// if authHeader != "" {
+	// 	// Debug: Decode JWT header to see key ID
+	// 	parts := strings.Split(authHeader, ".")
+	// 	if len(parts) >= 1 {
+	// 		headerBytes, err := base64.RawURLEncoding.DecodeString(parts[0])
+	// 		if err == nil {
+	// 			fmt.Printf("\n🔍 [JWT DEBUG] Header: %s\n\n", string(headerBytes))
+	// 		}
+	// 	}
+	// 	// Try to validate signature using webhook secret (NOT API credentials)
+	// 	// LiveKit signs webhooks with the Webhook Signing Key from Dashboard
+	// 	//authProvider := auth.NewSimpleKeyProvider(h.livekitAPIKey, h.livekitSecret)
+	// 	//fmt.Printf("🔑 [WEBHOOK] Validating với keyID: %s, secret: %s...\n", h.livekitAPIKey, h.livekitSecret[:10])
+	// 	//_, validationErr := webhook.ReceiveWebhookEvent(c.Request(), authProvider)
 
-		if validationErr != nil {
-			fmt.Printf("❌ SIGNATURE VALIDATION FAILED!\n")
-			fmt.Printf("   Error: %v\n", validationErr)
-			fmt.Printf("   This might be a LiveKit signing key mismatch.\n")
-			fmt.Printf("⚠️  FALLING BACK TO UNSIGNED MODE (DEV ONLY)\n")
+	// 	// if validationErr != nil {
+	// 	// 	fmt.Printf("❌ SIGNATURE VALIDATION FAILED!\n")
+	// 	// 	fmt.Printf("   Error: %v\n", validationErr)
+	// 	// 	fmt.Printf("   This might be a LiveKit signing key mismatch.\n")
+	// 	// 	fmt.Printf("⚠️  FALLING BACK TO UNSIGNED MODE (DEV ONLY)\n")
 
-			if h.logger != nil {
-				h.logger.Warn("Webhook signature validation failed - parsing without validation",
-					zap.Error(validationErr),
-					zap.String("expected_signing_key", h.webhookSecret),
-					zap.String("dashboard_shows", "APIOMTEQXFBCDEJ"),
-				)
-			}
-			c.Logger().Errorf("❌ [WEBHOOK] Signature validation error: %v", validationErr)
-			c.Logger().Warn("⚠️  Processing webhook WITHOUT signature validation (DEV MODE)")
-		} else {
-			fmt.Printf("✅ ✅ ✅ SUCCESS! Webhook signature validated!\n")
-			fmt.Printf("   Signing key %s is CORRECT!\n", h.webhookSecret)
-		}
-	} else {
-		c.Logger().Warn("⚠️  No authorization header, processing in DEV MODE")
-	}
+	// 	// 	if h.logger != nil {
+	// 	// 		h.logger.Warn("Webhook signature validation failed - parsing without validation",
+	// 	// 			zap.Error(validationErr),
+	// 	// 			zap.String("expected_signing_key", h.webhookSecret),
+	// 	// 			zap.String("dashboard_shows", "APIOMTEQXFBCDEJ"),
+	// 	// 		)
+	// 	// 	}
+	// 	// 	c.Logger().Errorf("❌ [WEBHOOK] Signature validation error: %v", validationErr)
+	// 	// 	c.Logger().Warn("⚠️  Processing webhook WITHOUT signature validation (DEV MODE)")
+	// 	// } else {
+	// 	// 	fmt.Printf("✅ ✅ ✅ SUCCESS! Webhook signature validated!\n")
+	// 	// 	fmt.Printf("   Signing key %s is CORRECT!\n", h.webhookSecret)
+	// 	// }
+	// } else {
+	// 	c.Logger().Warn("⚠️  No authorization header, processing in DEV MODE")
+	// }
 
 	// Extract event type
 	eventType, ok := rawEvent["event"].(string)

@@ -483,7 +483,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "integer",
-                        "description": "Items per page (default: 20)",
+                        "description": "Items per page (default: 5)",
                         "name": "page_size",
                         "in": "query"
                     },
@@ -513,7 +513,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "Sort field (created_at/start_time/participant_count)",
+                        "description": "Sort field (created_at/started_at/name)",
                         "name": "sort_by",
                         "in": "query"
                     },

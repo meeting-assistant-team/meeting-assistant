@@ -74,8 +74,18 @@ type CreateRoomOutput struct {
 // CreateRoom creates a new room
 func (s *RoomService) CreateRoom(ctx context.Context, input CreateRoomInput) (*CreateRoomOutput, error) {
 	// Validate input
-	if input.MaxParticipants < 2 || input.MaxParticipants > 10 {
+	if input.MaxParticipants < 2 || input.MaxParticipants > 5 {
 		return nil, usecaseErrors.ErrInvalidMaxParticipants
+	}
+
+	// Validate scheduled room requirements
+	if input.Type == entities.RoomTypeScheduled {
+		if input.ScheduledStartTime == nil {
+			return nil, fmt.Errorf("scheduled_start_time is required for scheduled rooms")
+		}
+		if input.ScheduledStartTime.Before(time.Now()) {
+			return nil, fmt.Errorf("scheduled_start_time must be in the future")
+		}
 	}
 
 	// Generate LiveKit room name
@@ -395,8 +405,22 @@ func (s *RoomService) checkJoinAuthorization(ctx context.Context, room *entities
 			return usecaseErrors.ErrNotInvited
 		}
 
-		// Check if invited (not yet joined or left)
-		if participant.Status != entities.ParticipantStatusInvited {
+		// Allow join for: invited, waiting, or left status (rejoin)
+		allowedStatuses := []entities.ParticipantStatus{
+			entities.ParticipantStatusInvited,
+			entities.ParticipantStatusWaiting,
+			entities.ParticipantStatusLeft, // Allow rejoin after leaving
+		}
+
+		isAllowed := false
+		for _, status := range allowedStatuses {
+			if participant.Status == status {
+				isAllowed = true
+				break
+			}
+		}
+
+		if !isAllowed {
 			// If already joined, return specific error
 			if participant.Status == entities.ParticipantStatusJoined {
 				return usecaseErrors.ErrAlreadyInRoom
@@ -418,8 +442,22 @@ func (s *RoomService) checkJoinAuthorization(ctx context.Context, room *entities
 			return usecaseErrors.ErrNotInvited
 		}
 
-		// Check if invited
-		if participant.Status != entities.ParticipantStatusInvited {
+		// Allow join for: invited, waiting, or left status (rejoin)
+		allowedStatuses := []entities.ParticipantStatus{
+			entities.ParticipantStatusInvited,
+			entities.ParticipantStatusWaiting,
+			entities.ParticipantStatusLeft, // Allow rejoin after leaving
+		}
+
+		isAllowed := false
+		for _, status := range allowedStatuses {
+			if participant.Status == status {
+				isAllowed = true
+				break
+			}
+		}
+
+		if !isAllowed {
 			if participant.Status == entities.ParticipantStatusJoined {
 				return usecaseErrors.ErrAlreadyInRoom
 			}
