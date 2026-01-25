@@ -796,7 +796,7 @@ paths:
         in: query
         name: page
         type: integer
-      - description: 'Items per page (default: 20)'
+      - description: 'Items per page (default: 5)'
         in: query
         name: page_size
         type: integer
@@ -816,7 +816,7 @@ paths:
         in: query
         name: tags
         type: array
-      - description: Sort field (created_at/start_time/participant_count)
+      - description: Sort field (created_at/started_at/name)
         in: query
         name: sort_by
         type: string
