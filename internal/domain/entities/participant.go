@@ -21,33 +21,33 @@ const (
 type ParticipantStatus string
 
 const (
-	// ParticipantStatusInvited: User has been invited to the room but hasn't responded yet
-	// Used when: Host sends invitation via email or in-app notification
+	// ParticipantStatusInvited: Người dùng đã được mời vào phòng nhưng chưa phản hồi
+	// Sử dụng khi: Host gửi lời mời qua email hoặc thông báo trong ứng dụng
 	ParticipantStatusInvited ParticipantStatus = "invited"
 
-	// ParticipantStatusWaiting: User is in the waiting room, pending host approval
-	// Used when: Room has waiting room enabled and user is waiting for host to admit them
+	// ParticipantStatusWaiting: Người dùng đang ở phòng chờ, chờ host chấp nhận
+	// Sử dụng khi: Phòng có bật chế độ phòng chờ và người dùng đang chờ host cho phép vào
 	ParticipantStatusWaiting ParticipantStatus = "waiting"
 
-	// ParticipantStatusJoined: User is actively in the room (connected to LiveKit)
-	// Used when: User successfully joined the meeting and is currently present
+	// ParticipantStatusJoined: Người dùng đang tham gia phòng (đã kết nối với LiveKit)
+	// Sử dụng khi: Người dùng đã vào meeting thành công và hiện đang có mặt
 	ParticipantStatusJoined ParticipantStatus = "joined"
 
-	// ParticipantStatusLeft: User has left the room normally (voluntary exit)
-	// Used when: User clicks "Leave" button or closes the meeting window
+	// ParticipantStatusLeft: Người dùng đã rời phòng một cách bình thường (tự nguyện)
+	// Sử dụng khi: Người dùng nhấn nút 'Leave' hoặc đóng cửa sổ meeting
 	ParticipantStatusLeft ParticipantStatus = "left"
 
-	// ParticipantStatusRemoved: User was forcibly removed by host/co-host
-	// Used when: Host kicks out a participant (includes removed_by and removal_reason)
+	// ParticipantStatusRemoved: Người dùng bị host/co-host kick ra khỏi phòng
+	// Sử dụng khi: Host kick một người tham gia (bao gồm removed_by và removal_reason)
 	ParticipantStatusRemoved ParticipantStatus = "removed"
 
-	// ParticipantStatusDeclined: User explicitly declined the invitation
-	// Used when: User clicks "Decline" on invitation notification/email
+	// ParticipantStatusDeclined: Người dùng từ chối lời mời một cách rõ ràng
+	// Sử dụng khi: Người dùng nhấn 'Decline' trên thông báo/email mời
 	ParticipantStatusDeclined ParticipantStatus = "declined"
 
-	// ParticipantStatusDenied: Host denied user's request to join (waiting room rejection)
-	// Reserved for future "block" feature - currently unused (deny = delete participant record)
-	// Used when: Host clicks "Deny" on waiting room request
+	// ParticipantStatusDenied: Host từ chối yêu cầu tham gia của người dùng (từ chối từ phòng chờ)
+	// Dành riêng cho tính năng 'block' trong tương lai - hiện chưa sử dụng (deny = xóa bản ghi participant)
+	// Sử dụng khi: Host nhấn 'Deny' trên yêu cầu từ phòng chờ
 	ParticipantStatusDenied ParticipantStatus = "denied"
 )
 

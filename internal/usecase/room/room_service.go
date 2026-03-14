@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -91,27 +92,35 @@ func (s *RoomService) CreateRoom(ctx context.Context, input CreateRoomInput) (*C
 	// Generate LiveKit room name
 	livekitRoomName := fmt.Sprintf("room-%s", uuid.New().String())
 
-	// Configure RoomCompositeEgress for auto-recording
-	// Use public MinIO endpoint for external services to access
-	publicURL := s.storageConfig.PublicURL
-	if publicURL == "" {
-		publicURL = fmt.Sprintf("https://%s", s.storageConfig.Endpoint)
+	// Configure RoomCompositeEgress for auto-recording.
+	// LiveKit egress requires custom S3 endpoint as a valid URI (with scheme).
+	s3Endpoint := s.storageConfig.PublicURL
+	if s3Endpoint == "" {
+		s3Endpoint = s.storageConfig.GetS3Endpoint()
+	}
+	if !strings.HasPrefix(s3Endpoint, "http://") && !strings.HasPrefix(s3Endpoint, "https://") {
+		protocol := "http://"
+		if s.storageConfig.UseSSL {
+			protocol = "https://"
+		}
+		s3Endpoint = protocol + s3Endpoint
 	}
 
 	egressConfig := &livekit.RoomEgress{
 		Room: &livekit.RoomCompositeEgressRequest{
 			RoomName:  livekitRoomName,
+			Layout:    "speaker",
 			AudioOnly: true,
 			FileOutputs: []*livekit.EncodedFileOutput{
 				{
-					FileType: livekit.EncodedFileType_MP4,
-					Filepath: "recordings/{time}-{room_name}.mp4",
+					FileType: livekit.EncodedFileType_MP3,
+					Filepath: "recordings/{time}-{room_name}.mp3",
 					Output: &livekit.EncodedFileOutput_S3{
 						S3: &livekit.S3Upload{
 							AccessKey:      s.storageConfig.AccessKeyID,
 							Secret:         s.storageConfig.SecretAccessKey,
 							Region:         "us-east-1",
-							Endpoint:       publicURL,
+							Endpoint:       s3Endpoint,
 							Bucket:         s.storageConfig.BucketName,
 							ForcePathStyle: true,
 						},
@@ -120,6 +129,8 @@ func (s *RoomService) CreateRoom(ctx context.Context, input CreateRoomInput) (*C
 			},
 		},
 	}
+
+	log.Printf("[Room] 🔧 Egress S3 Config: endpoint=%s, bucket=%s, region=us-east-1", s3Endpoint, s.storageConfig.BucketName)
 
 	// Create room in LiveKit with egress auto-recording
 	roomInfo, err := s.livekitClient.CreateRoom(ctx, livekitRoomName, &lkpkg.CreateRoomOptions{
@@ -230,6 +241,23 @@ func (s *RoomService) ListRooms(ctx context.Context, filters repositories.RoomFi
 	return rooms, total, nil
 }
 
+// GetRoomsByUserID retrieves all rooms where the user is host or participant
+func (s *RoomService) GetRoomsByUserID(ctx context.Context, userID uuid.UUID, limit, offset int) ([]*entities.Room, int64, error) {
+	filters := repositories.RoomFilters{
+		ParticipantUserID: &userID,
+		Limit:             limit,
+		Offset:            offset,
+		SortBy:            "created_at",
+		SortOrder:         "desc",
+	}
+
+	rooms, total, err := s.roomRepo.List(ctx, filters)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to get rooms for user: %w", err)
+	}
+	return rooms, total, nil
+}
+
 // StartRoom starts a scheduled room
 func (s *RoomService) StartRoom(ctx context.Context, roomID, userID uuid.UUID) (*entities.Room, error) {
 	room, err := s.roomRepo.FindByID(ctx, roomID)
@@ -310,7 +338,7 @@ func (s *RoomService) JoinRoom(ctx context.Context, input JoinRoomInput) (*entit
 	// If participant exists, check if they are blocked or removed
 	if participant != nil {
 		// Check if user is blocked (denied status) or has been removed
-		if participant.Status == entities.ParticipantStatusDenied || participant.IsRemoved {
+		if participant.Status == entities.ParticipantStatusDenied {
 			return nil, nil, fmt.Errorf("you have been blocked from this room")
 		}
 
@@ -324,9 +352,10 @@ func (s *RoomService) JoinRoom(ctx context.Context, input JoinRoomInput) (*entit
 			return nil, nil, usecaseErrors.ErrAlreadyInRoom
 		}
 
-		// Allow rejoin only for: left, invited, or waiting status
+		// Allow rejoin only for: left, invited, declined, or waiting status
 		if participant.Status == entities.ParticipantStatusLeft ||
 			participant.Status == entities.ParticipantStatusInvited ||
+			participant.Status == entities.ParticipantStatusDeclined ||
 			participant.Status == entities.ParticipantStatusWaiting {
 			// Update status based on role and room type
 			if room.HostID == input.UserID {
@@ -558,11 +587,13 @@ func (s *RoomService) EndRoom(ctx context.Context, roomID, userID uuid.UUID) err
 		}
 	}
 
-	// Delete room from LiveKit (closes room and ensures it's removed)
-	if err := s.livekitClient.DeleteRoom(ctx, room.LivekitRoomName); err != nil {
-		// Log error but don't fail - room status should still be updated in DB
-		fmt.Printf("⚠️  warning: failed to delete livekit room %s: %v\n", room.LivekitRoomName, err)
-	}
+	// ✅ DO NOT DELETE the room immediately - let LiveKit handle cleanup naturally
+	// When all participants leave, LiveKit will:
+	// 1. Finish the egress (recording) and upload to MinIO
+	// 2. Send egress_ended webhook with recording URL
+	// 3. Auto-delete room after DepartureTimeout (30s)
+	// Deleting the room immediately would KILL the egress process before upload completes
+	log.Printf("🏁 [EndRoom] Room %s ended - waiting for egress to complete before cleanup", room.LivekitRoomName)
 
 	// End the room in database
 	room.End()
@@ -583,6 +614,14 @@ func (s *RoomService) EndRoom(ctx context.Context, roomID, userID uuid.UUID) err
 
 // GetParticipants retrieves all participants in a room
 func (s *RoomService) GetParticipants(ctx context.Context, roomID uuid.UUID) ([]*entities.Participant, error) {
+	// Verify room exists to return a meaningful error instead of empty data
+	if _, err := s.roomRepo.FindByID(ctx, roomID); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, usecaseErrors.ErrRoomNotFound
+		}
+		return nil, fmt.Errorf("failed to get room: %w", err)
+	}
+
 	participants, err := s.participantRepo.FindByRoomID(ctx, roomID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get participants: %w", err)
@@ -656,11 +695,17 @@ func (s *RoomService) AdmitParticipant(ctx context.Context, roomID, hostID, part
 		return "", fmt.Errorf("failed to increment participant count: %w", err)
 	}
 
-	return "", nil
+	// Generate LiveKit token for the admitted participant
+	token, err := s.GenerateParticipantToken(ctx, room, participant)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate livekit token: %w", err)
+	}
+
+	return token, nil
 }
 
 // DenyParticipant denies a waiting participant from joining the room
-// This is a soft rejection - the participant record is deleted so the user can try to join again
+// This is a soft rejection - status is reset so the user can request to join again
 // For permanent blocking, use BlockParticipant instead
 func (s *RoomService) DenyParticipant(ctx context.Context, roomID, hostID, participantID uuid.UUID, reason string) error {
 	// Verify room exists
@@ -690,9 +735,12 @@ func (s *RoomService) DenyParticipant(ctx context.Context, roomID, hostID, parti
 		return usecaseErrors.ErrInvalidParticipantStatus
 	}
 
-	// Delete the participant record instead of marking as denied
-	// This allows the user to try joining again later
-	if err := s.participantRepo.Delete(ctx, participantID); err != nil {
+	// Reset to invited so this is a soft deny and user can rejoin later.
+	participant.Status = entities.ParticipantStatusLeft
+	participant.IsRemoved = false
+	participant.RemovedBy = nil
+	participant.RemovalReason = nil
+	if err := s.participantRepo.Update(ctx, participant); err != nil {
 		return fmt.Errorf("failed to deny participant: %w", err)
 	}
 
@@ -924,6 +972,20 @@ func (s *RoomService) promoteNewHost(ctx context.Context, roomID uuid.UUID) erro
 
 // GenerateParticipantToken generates a LiveKit access token for a participant
 func (s *RoomService) GenerateParticipantToken(ctx context.Context, room *entities.Room, participant *entities.Participant) (string, error) {
+	// Check if LiveKit room exists
+	_, err := s.livekitClient.GetRoom(ctx, room.LivekitRoomName)
+	if err != nil {
+		// Room doesn't exist (likely auto-deleted by EmptyTimeout or DepartureTimeout)
+		// Recreate it with the same configuration
+		log.Printf("[Room] ⚠️ LiveKit room not found, recreating: %s", room.LivekitRoomName)
+
+		if err := s.recreateLivekitRoom(ctx, room); err != nil {
+			return "", fmt.Errorf("failed to recreate livekit room: %w", err)
+		}
+
+		log.Printf("[Room] ✅ LiveKit room recreated: %s", room.LivekitRoomName)
+	}
+
 	// Determine participant name and admin rights
 	participantName := "Participant"
 	isAdmin := participant.IsHost()
@@ -951,6 +1013,70 @@ func (s *RoomService) GenerateParticipantToken(ctx context.Context, room *entiti
 	}
 
 	return token, nil
+}
+
+// recreateLivekitRoom recreates a LiveKit room that was auto-deleted
+func (s *RoomService) recreateLivekitRoom(ctx context.Context, room *entities.Room) error {
+	// Configure RoomCompositeEgress for auto-recording (same as CreateRoom).
+	// Keep scheme to satisfy egress custom endpoint URI validation.
+	s3Endpoint := s.storageConfig.PublicURL
+	if s3Endpoint == "" {
+		s3Endpoint = s.storageConfig.GetS3Endpoint()
+	}
+	if !strings.HasPrefix(s3Endpoint, "http://") && !strings.HasPrefix(s3Endpoint, "https://") {
+		protocol := "http://"
+		if s.storageConfig.UseSSL {
+			protocol = "https://"
+		}
+		s3Endpoint = protocol + s3Endpoint
+	}
+
+	egressConfig := &livekit.RoomEgress{
+		Room: &livekit.RoomCompositeEgressRequest{
+			RoomName:  room.LivekitRoomName,
+			Layout:    "speaker",
+			AudioOnly: true,
+			FileOutputs: []*livekit.EncodedFileOutput{
+				{
+					FileType: livekit.EncodedFileType_MP3,
+					Filepath: "recordings/{time}-{room_name}.mp3",
+					Output: &livekit.EncodedFileOutput_S3{
+						S3: &livekit.S3Upload{
+							AccessKey:      s.storageConfig.AccessKeyID,
+							Secret:         s.storageConfig.SecretAccessKey,
+							Region:         "us-east-1",
+							Endpoint:       s3Endpoint,
+							Bucket:         s.storageConfig.BucketName,
+							ForcePathStyle: true,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// Recreate room with same settings
+	roomInfo, err := s.livekitClient.CreateRoom(ctx, room.LivekitRoomName, &lkpkg.CreateRoomOptions{
+		MaxParticipants:  int32(room.MaxParticipants),
+		EmptyTimeout:     300, // 5 minutes
+		DepartureTimeout: 30,  // 30 seconds
+		Metadata:         fmt.Sprintf(`{"name":"%s","enable_recording":true}`, room.Name),
+		Egress:           egressConfig,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create livekit room: %w", err)
+	}
+
+	// Update room with new LiveKit SID if it changed
+	if roomInfo.SID != *room.LivekitRoomID {
+		room.LivekitRoomID = &roomInfo.SID
+		if err := s.roomRepo.Update(ctx, room); err != nil {
+			log.Printf("[Room] ⚠️ Failed to update room with new LiveKit SID: %v", err)
+			// Don't fail the whole operation if we can't update the SID
+		}
+	}
+
+	return nil
 }
 
 // GetLivekitURL returns the LiveKit server URL

@@ -71,9 +71,9 @@ func main() {
 	e.HidePort = false
 
 	// Custom logger format
-	e.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
-		Format: "${time_rfc3339} | ${status} | ${method} ${uri} | ${latency_human}\n",
-	}))
+	// e.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
+	// 	Format: "${time_rfc3339} | ${status} | ${method} ${uri} | ${latency_human}\n",
+	// }))
 
 	// Recover from panics
 	e.Use(middleware.Recover())

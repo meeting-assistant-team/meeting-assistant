@@ -58,12 +58,14 @@ func (rt *Router) Setup(e *echo.Echo) {
 	rt.setupAuthRoutes(v1)
 	rt.setupOAuthCallbackRoutes(v1)
 	rt.setupRoomRoutes(v1)
+	rt.setupUserRoutes(v1)
 	rt.setupMeetingRoutes(v1)
 	rt.setupInvitationRoutes(v1)
 	rt.setupTestRoutes(v1)
 	// AI endpoints
 	if rt.aiController != nil {
 		v1.POST("/meetings/:id/process-ai", rt.aiController.ProcessMeeting)
+v1.GET("/ai/workers/status", rt.aiController.GetWorkerStatus)
 	} else {
 		v1.POST("/meetings/:id/process-ai", rt.notImplemented)
 	}
@@ -166,6 +168,23 @@ func (rt *Router) setupRoomRoutes(g *echo.Group) {
 		roomGroup.GET("/:id/participants", rt.notImplemented)
 		roomGroup.DELETE("/:id/participants/:pid", rt.notImplemented)
 		roomGroup.PATCH("/:id/host", rt.notImplemented)
+	}
+}
+
+// setupUserRoutes configures user-related routes
+func (rt *Router) setupUserRoutes(g *echo.Group) {
+	userGroup := g.Group("/users")
+
+	// Protect with auth middleware
+	if rt.authMW != nil {
+		userGroup.Use(rt.authMW)
+	}
+
+	if rt.roomHandler != nil {
+		// Get rooms by user ID
+		userGroup.GET("/:user_id/rooms", rt.roomHandler.GetRoomsByUserID)
+	} else {
+		userGroup.GET("/:user_id/rooms", rt.notImplemented)
 	}
 }
 

@@ -31,6 +31,7 @@ type ListRoomsRequest struct {
 	Status    string   `query:"status" validate:"omitempty,oneof=scheduled active ended cancelled"`
 	Search    string   `query:"search"`
 	Tags      []string `query:"tags"`
+	UserID    string   `query:"user_id" validate:"omitempty,uuid"`
 	Page      int      `query:"page" validate:"min=1"`
 	PageSize  int      `query:"page_size" validate:"min=1,max=5"`
 	SortBy    string   `query:"sort_by" validate:"omitempty,oneof=created_at started_at ended_at name"`

@@ -18,6 +18,7 @@ type Client interface {
 	GenerateToken(userID, roomName, participantName string, options *TokenOptions) (string, error)
 	ListParticipants(ctx context.Context, roomName string) ([]*ParticipantInfo, error)
 	RemoveParticipant(ctx context.Context, roomName, identity string) error
+	GetRoom(ctx context.Context, roomName string) (*RoomInfo, error)
 }
 
 // CreateRoomOptions holds options for creating a room
@@ -207,6 +208,30 @@ func (c *realClient) ListParticipants(ctx context.Context, roomName string) ([]*
 	return participants, nil
 }
 
+// GetRoom gets information about a specific room
+func (c *realClient) GetRoom(ctx context.Context, roomName string) (*RoomInfo, error) {
+	rooms, err := c.roomClient.ListRooms(ctx, &livekit.ListRoomsRequest{
+		Names: []string{roomName},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get room: %w", err)
+	}
+
+	if len(rooms.Rooms) == 0 {
+		return nil, fmt.Errorf("room not found: %s", roomName)
+	}
+
+	room := rooms.Rooms[0]
+	return &RoomInfo{
+		Name:            room.Name,
+		SID:             room.Sid,
+		CreationTime:    time.Unix(room.CreationTime, 0),
+		MaxParticipants: int32(room.MaxParticipants),
+		NumParticipants: int32(room.NumParticipants),
+		Metadata:        room.Metadata,
+	}, nil
+}
+
 // mockClient is a mock implementation for testing
 type mockClient struct {
 	url       string
@@ -276,6 +301,18 @@ func (m *mockClient) GenerateToken(userID, roomName, participantName string, opt
 	}
 
 	return token, nil
+}
+
+// GetRoom (mock) returns mock room info
+func (m *mockClient) GetRoom(ctx context.Context, roomName string) (*RoomInfo, error) {
+	return &RoomInfo{
+		Name:            roomName,
+		SID:             "MOCK_SID",
+		NumParticipants: 0,
+		MaxParticipants: 100,
+		CreationTime:    time.Now(),
+		Metadata:        "",
+	}, nil
 }
 
 // ListParticipants (mock) returns empty list

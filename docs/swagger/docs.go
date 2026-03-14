@@ -483,7 +483,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "integer",
-                        "description": "Items per page (default: 5)",
+                        "description": "Items per page (default: 20, max: 100)",
                         "name": "page_size",
                         "in": "query"
                     },
@@ -513,7 +513,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "Sort field (created_at/started_at/name)",
+                        "description": "Sort field (created_at/started_at/ended_at/name)",
                         "name": "sort_by",
                         "in": "query"
                     },
@@ -1063,14 +1063,14 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Gets a list of all participants in a room",
+                "description": "Gets a list of active participants in a room (invited, waiting, and joined status only). This endpoint excludes participants who have left, been removed, declined invitations, or been denied entry.",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "Participants"
                 ],
-                "summary": "Get room participants",
+                "summary": "Get active participants",
                 "parameters": [
                     {
                         "type": "string",
@@ -1082,7 +1082,7 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "List of participants",
+                        "description": "List of active participants",
                         "schema": {
                             "$ref": "#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.ParticipantListResponse"
                         }
@@ -1230,7 +1230,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Allows users to check their participant status and receive token when admitted\nThis is used for polling while waiting in the waiting room",
+                "description": "Allows users to check their own participant status in a room and receive LiveKit token when admitted.\nThis lightweight endpoint is designed for polling while waiting in the waiting room.\nReturns only essential room info (ID, name, status) and the user's participant record - does not include full room details or other participants.\nStatus values: 'waiting' (in waiting room), 'joined' (admitted with token), 'removed' (kicked), 'denied' (blocked), 'left' (voluntarily left)",
                 "produces": [
                     "application/json"
                 ],
@@ -1249,7 +1249,7 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "Current participant status",
+                        "description": "Current participant status with lightweight room info",
                         "schema": {
                             "$ref": "#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.ParticipantStatusResponse"
                         }
@@ -1354,7 +1354,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Removes a participant from the room (host/co-host only)",
+                "description": "Kicks/removes a participant from the current meeting session (host/co-host only). This does NOT block the participant - they can rejoin the room later if they have access. For permanent blocking, use the block endpoint instead.",
                 "consumes": [
                     "application/json"
                 ],
@@ -1364,7 +1364,7 @@ const docTemplate = `{
                 "tags": [
                     "Participants"
                 ],
-                "summary": "Remove a participant",
+                "summary": "Kick participant from room",
                 "parameters": [
                     {
                         "type": "string",
@@ -1391,7 +1391,7 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "Participant removed successfully",
+                        "description": "Participant kicked successfully",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -1419,7 +1419,7 @@ const docTemplate = `{
                         }
                     },
                     "500": {
-                        "description": "Failed to remove participant",
+                        "description": "Failed to kick participant",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -2179,7 +2179,7 @@ const docTemplate = `{
                 },
                 "max_participants": {
                     "type": "integer",
-                    "maximum": 100,
+                    "maximum": 5,
                     "minimum": 2
                 },
                 "name": {
@@ -2421,13 +2421,17 @@ const docTemplate = `{
                         }
                     ]
                 },
-                "room": {
-                    "description": "Room information",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/github_com_johnquangdev_meeting-assistant_internal_adapter_dto_room.RoomResponse"
-                        }
-                    ]
+                "room_id": {
+                    "description": "Room ID",
+                    "type": "string"
+                },
+                "room_name": {
+                    "description": "Room name",
+                    "type": "string"
+                },
+                "room_status": {
+                    "description": "Room status (active, ended, etc.)",
+                    "type": "string"
                 },
                 "status": {
                     "description": "\"waiting\", \"joined\", \"denied\", etc.",
