@@ -19,6 +19,9 @@ type Service interface {
 	// ListRooms retrieves rooms with filters
 	ListRooms(ctx context.Context, filters repositories.RoomFilters) ([]*entities.Room, int64, error)
 
+	// GetRoomsByUserID retrieves all rooms where user is host or participant
+	GetRoomsByUserID(ctx context.Context, userID uuid.UUID, limit, offset int) ([]*entities.Room, int64, error)
+
 	// StartRoom starts a scheduled room
 	StartRoom(ctx context.Context, roomID, userID uuid.UUID) (*entities.Room, error)
 

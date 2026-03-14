@@ -61,3 +61,15 @@ func (ac *AIController) ProcessMeeting(c echo.Context) error {
 	}
 	return HandleSuccess(ac.logger, c, map[string]interface{}{"status": "processing_started"})
 }
+
+// GetWorkerStatus returns the current status of AI workers
+// @Summary      Get AI worker pool status
+// @Description  Returns detailed information about running AI workers, their tasks, and uptime
+// @Tags         AI
+// @Produce      json
+// @Success      200  {object}  map[string]interface{}  "Worker status information"
+// @Router       /ai/workers/status [get]
+func (ac *AIController) GetWorkerStatus(c echo.Context) error {
+	status := ac.svc.GetWorkerStatus()
+	return c.JSON(200, status)
+}

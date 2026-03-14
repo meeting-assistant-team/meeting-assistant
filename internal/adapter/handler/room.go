@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	stdErrors "errors"
 	"fmt"
 	"strconv"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/johnquangdev/meeting-assistant/internal/adapter/repository"
 	"github.com/johnquangdev/meeting-assistant/internal/domain/entities"
 	domainrepo "github.com/johnquangdev/meeting-assistant/internal/domain/repositories"
+	usecaseErrors "github.com/johnquangdev/meeting-assistant/internal/usecase/errors"
 	roomUsecase "github.com/johnquangdev/meeting-assistant/internal/usecase/room"
 )
 
@@ -143,6 +145,7 @@ func (h *Room) GetRoom(c echo.Context) error {
 // @Param        type       query     string  false  "Room type filter (public/private/scheduled)"
 // @Param        status     query     string  false  "Room status filter (scheduled/active/ended/cancelled)"
 // @Param        search     query     string  false  "Search by room name"
+// @Param        user_id    query     string  false  "Filter by user ID (host or participant). Defaults to current user"
 // @Param        tags       query     array   false  "Filter by tags"
 // @Param        sort_by    query     string  false  "Sort field (created_at/started_at/ended_at/name)"
 // @Param        sort_order query     string  false  "Sort order (asc/desc)"
@@ -188,30 +191,26 @@ func (h *Room) ListRooms(c echo.Context) error {
 		req.Tags = tags
 	}
 
-	// Get user ID from context (set by auth middleware)
-	userID, ok := c.Get("user_id").(uuid.UUID)
+	// Resolve target user: default to authenticated user, optionally overridden by query param
+	currentUserID, ok := c.Get("user_id").(uuid.UUID)
 	if !ok {
 		return h.handleError(c, errors.ErrUnauthenticated())
 	}
 
-	// Debug logging
-	h.logger.Info("ListRooms request",
-		zap.String("user_id", userID.String()),
-		zap.String("type", req.Type),
-		zap.String("status", req.Status),
-		zap.String("search", req.Search),
-		zap.Int("page", req.Page),
-		zap.Int("page_size", req.PageSize),
-	)
+	targetUserID := currentUserID
+	if userIDParam := c.QueryParam("user_id"); userIDParam != "" {
+		parsedUserID, err := uuid.Parse(userIDParam)
+		if err != nil {
+			return h.handleError(c, errors.ErrInvalidArgument("Invalid user ID").WithDetail("error", "user_id must be a valid UUID"))
+		}
+		targetUserID = parsedUserID
+		req.UserID = parsedUserID.String()
+	} else {
+		req.UserID = currentUserID.String()
+	}
 
 	// Build filters with user participation filter
-	filters := buildFilters(&req, &userID)
-
-	h.logger.Info("ListRooms filters",
-		zap.String("participant_user_id", userID.String()),
-		zap.Any("type_filter", filters.Type),
-		zap.Any("status_filter", filters.Status),
-	)
+	filters := buildFilters(&req, &targetUserID)
 
 	rooms, total, err := h.roomService.ListRooms(c.Request().Context(), filters)
 	if err != nil {
@@ -221,7 +220,61 @@ func (h *Room) ListRooms(c echo.Context) error {
 	return h.handleSuccess(c, presenter.ToRoomListResponse(rooms, total, req.Page, req.PageSize))
 }
 
-// JoinRoom handles POST /rooms/:id/join
+// GetRoomsByUserID handles GET /users/:user_id/rooms
+// @Summary      Get rooms by user ID
+// @Description  Gets all rooms where the user is host or participant
+// @Tags         Rooms
+// @Produce      json
+// @Security     BearerAuth
+// @Param        user_id   path      string  true  "User ID (UUID)"
+// @Param        page      query     int     false  "Page number (default: 1)"
+// @Param        page_size query     int     false  "Items per page (default: 20, max: 100)"
+// @Success      200       {object}  room.RoomListResponse  "List of rooms"
+// @Failure      400       {object}  map[string]interface{}  "Invalid user ID"
+// @Failure      401       {object}  map[string]interface{}  "User not authenticated"
+// @Failure      500       {object}  map[string]interface{}  "Failed to retrieve rooms"
+// @Router       /users/{user_id}/rooms [get]
+func (h *Room) GetRoomsByUserID(c echo.Context) error {
+	userIDParam := c.Param("user_id")
+	targetUserID, err := uuid.Parse(userIDParam)
+	if err != nil {
+		return h.handleError(c, errors.ErrInvalidArgument("Invalid user ID").WithDetail("error", "User ID must be a valid UUID"))
+	}
+
+	// Parse pagination parameters
+	page := 1
+	if p := c.QueryParam("page"); p != "" {
+		if pageNum, err := strconv.Atoi(p); err == nil && pageNum > 0 {
+			page = pageNum
+		}
+	}
+
+	pageSize := 20 // Default page size
+	if ps := c.QueryParam("page_size"); ps != "" {
+		if pageSizeNum, err := strconv.Atoi(ps); err == nil && pageSizeNum > 0 {
+			if pageSizeNum > 100 {
+				pageSizeNum = 100 // Max page size
+			}
+			pageSize = pageSizeNum
+		}
+	}
+
+	offset := (page - 1) * pageSize
+
+	h.logger.Info("GetRoomsByUserID request",
+		zap.String("target_user_id", targetUserID.String()),
+		zap.Int("page", page),
+		zap.Int("page_size", pageSize),
+	)
+
+	rooms, total, err := h.roomService.GetRoomsByUserID(c.Request().Context(), targetUserID, pageSize, offset)
+	if err != nil {
+		return h.handleError(c, errors.ErrInternal(err))
+	}
+
+	return h.handleSuccess(c, presenter.ToRoomListResponse(rooms, total, page, pageSize))
+}
+
 // @Summary      Join a room
 // @Description  Allows a user to join an existing room and get LiveKit credentials
 // @Tags         Rooms
@@ -234,7 +287,6 @@ func (h *Room) ListRooms(c echo.Context) error {
 // @Failure      401  {object}  map[string]interface{}  "User not authenticated"
 // @Failure      409  {object}  map[string]interface{}  "User already in room"
 // @Failure      500  {object}  map[string]interface{}  "Failed to join room"
-// @Router       /rooms/{id}/participants [post]
 func (h *Room) JoinRoom(c echo.Context) error {
 	roomID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -253,7 +305,22 @@ func (h *Room) JoinRoom(c echo.Context) error {
 
 	r, participant, err := h.roomService.JoinRoom(c.Request().Context(), input)
 	if err != nil {
-		return h.handleError(c, errors.ErrInternal(err))
+		switch {
+		case stdErrors.Is(err, usecaseErrors.ErrRoomNotFound):
+			return h.handleError(c, errors.ErrNotFound("Room not found").WithDetail("room_id", roomID.String()))
+		case stdErrors.Is(err, usecaseErrors.ErrRoomEnded):
+			return h.handleError(c, errors.ErrRoomClosed(roomID.String()))
+		case stdErrors.Is(err, usecaseErrors.ErrRoomFull):
+			return h.handleError(c, errors.ErrInvalidArgument("Room is full").WithDetail("room_id", roomID.String()))
+		case stdErrors.Is(err, usecaseErrors.ErrAlreadyInRoom):
+			return h.handleError(c, errors.ErrAlreadyExists("participant").WithDetail("room_id", roomID.String()))
+		case stdErrors.Is(err, usecaseErrors.ErrNotInvited), stdErrors.Is(err, usecaseErrors.ErrAccessDenied):
+			return h.handleError(c, errors.ErrRoomAccessDenied(roomID.String()))
+		case stdErrors.Is(err, usecaseErrors.ErrTooEarly):
+			return h.handleError(c, errors.ErrInvalidArgument("Cannot join room before scheduled time"))
+		default:
+			return h.handleError(c, errors.ErrInternal(err))
+		}
 	}
 
 	// Check if user is in waiting room
@@ -351,13 +418,13 @@ func (h *Room) EndRoom(c echo.Context) error {
 }
 
 // GetParticipants handles GET /rooms/:id/participants
-// @Summary      Get room participants
-// @Description  Gets a list of all participants in a room
+// @Summary      Get active participants
+// @Description  Gets a list of active participants in a room (invited, waiting, and joined status only). This endpoint excludes participants who have left, been removed, declined invitations, or been denied entry.
 // @Tags         Participants
 // @Produce      json
 // @Security     BearerAuth
 // @Param        id   path      string  true  "Room ID (UUID)"
-// @Success      200  {object}  room.ParticipantListResponse  "List of participants"
+// @Success      200  {object}  room.ParticipantListResponse  "List of active participants"
 // @Failure      400  {object}  map[string]interface{}  "Invalid room ID"
 // @Failure      500  {object}  map[string]interface{}  "Failed to get participants"
 // @Router       /rooms/{id}/participants [get]
@@ -367,8 +434,19 @@ func (h *Room) GetParticipants(c echo.Context) error {
 		return h.handleError(c, errors.ErrInvalidArgument("Invalid room ID").WithDetail("error", "Room ID must be a valid UUID"))
 	}
 
+	// Ensure room exists so we can surface a 404 instead of a generic 500
+	if _, err := h.roomService.GetRoom(c.Request().Context(), roomID); err != nil {
+		if stdErrors.Is(err, usecaseErrors.ErrRoomNotFound) {
+			return h.handleError(c, errors.ErrNotFound("Room not found").WithDetail("room_id", roomID.String()))
+		}
+		return h.handleError(c, errors.ErrInternal(err))
+	}
+
 	participants, err := h.roomService.GetParticipants(c.Request().Context(), roomID)
 	if err != nil {
+		if stdErrors.Is(err, usecaseErrors.ErrRoomNotFound) {
+			return h.handleError(c, errors.ErrNotFound("Room not found").WithDetail("room_id", roomID.String()))
+		}
 		return h.handleError(c, errors.ErrInternal(err))
 	}
 
@@ -498,7 +576,7 @@ func (h *Room) AdmitParticipant(c echo.Context) error {
 // DenyParticipant handles POST /rooms/:id/participants/:pid/deny
 // @Summary      Deny participant
 // @Description  Denies a waiting participant from joining the room (soft rejection - user can try joining again)
-// @Description  Note: This removes the waiting request. For permanent blocking, use the block endpoint instead.
+// @Description  Note: This resets participant status to invited (no permanent block). For permanent blocking, use the block endpoint instead.
 // @Tags         Rooms
 // @Produce      json
 // @Security     BearerAuth
@@ -537,7 +615,7 @@ func (h *Room) DenyParticipant(c echo.Context) error {
 	}
 
 	return h.handleSuccess(c, map[string]interface{}{
-		"message": "participant denied successfully - they can request to join again",
+		"message": "participant denied successfully - status reset to invited",
 	})
 }
 
@@ -590,13 +668,15 @@ func (h *Room) BlockParticipant(c echo.Context) error {
 
 // GetMyParticipantStatus handles GET /rooms/:id/participants/me/status
 // @Summary      Get my participant status (polling endpoint)
-// @Description  Allows users to check their participant status and receive token when admitted
-// @Description  This is used for polling while waiting in the waiting room
+// @Description  Allows users to check their own participant status in a room and receive LiveKit token when admitted.
+// @Description  This lightweight endpoint is designed for polling while waiting in the waiting room.
+// @Description  Returns only essential room info (ID, name, status) and the user's participant record - does not include full room details or other participants.
+// @Description  Status values: 'waiting' (in waiting room), 'joined' (admitted with token), 'removed' (kicked), 'denied' (blocked), 'left' (voluntarily left)
 // @Tags         Participants
 // @Produce      json
 // @Security     BearerAuth
 // @Param        id   path      string  true  "Room ID (UUID)"
-// @Success      200  {object}  room.ParticipantStatusResponse  "Current participant status"
+// @Success      200  {object}  room.ParticipantStatusResponse  "Current participant status with lightweight room info"
 // @Failure      400  {object}  map[string]interface{}  "Invalid room ID"
 // @Failure      401  {object}  map[string]interface{}  "User not authenticated"
 // @Failure      404  {object}  map[string]interface{}  "Participant record not found"
@@ -627,16 +707,21 @@ func (h *Room) GetMyParticipantStatus(c echo.Context) error {
 		message = "You have been admitted to the room."
 	case entities.ParticipantStatusDenied:
 		message = "You have been blocked from this room."
+	case entities.ParticipantStatusRemoved:
+		message = "You have been kicked from the room."
 	case entities.ParticipantStatusLeft:
 		message = "You have left the room."
 	default:
 		message = fmt.Sprintf("Current status: %s", participant.Status)
 	}
 
+	// Build lightweight response for polling - only essential info
 	response := &room.ParticipantStatusResponse{
 		Status:       string(participant.Status),
 		Message:      message,
-		Room:         presenter.ToRoomResponse(r),
+		RoomID:       r.ID.String(),
+		RoomName:     r.Name,
+		RoomStatus:   string(r.Status),
 		Participant:  presenter.ToParticipantResponse(participant),
 		LivekitToken: token,
 		LivekitURL:   h.roomService.GetLivekitURL(),
@@ -646,8 +731,8 @@ func (h *Room) GetMyParticipantStatus(c echo.Context) error {
 }
 
 // RemoveParticipant handles DELETE /rooms/:id/participants/:pid
-// @Summary      Remove a participant
-// @Description  Removes a participant from the room (host/co-host only)
+// @Summary      Kick participant from room
+// @Description  Kicks/removes a participant from the current meeting session (host/co-host only). This does NOT block the participant - they can rejoin the room later if they have access. For permanent blocking, use the block endpoint instead.
 // @Tags         Participants
 // @Accept       json
 // @Produce      json
@@ -655,11 +740,11 @@ func (h *Room) GetMyParticipantStatus(c echo.Context) error {
 // @Param        id      path      string  true  "Room ID (UUID)"
 // @Param        pid     path      string  true  "Participant ID (UUID)"
 // @Param        request body      room.RemoveParticipantRequest  false  "Reason for removal"
-// @Success      200     {object}  map[string]interface{}  "Participant removed successfully"
+// @Success      200     {object}  map[string]interface{}  "Participant kicked successfully"
 // @Failure      400     {object}  map[string]interface{}  "Invalid room or participant ID"
 // @Failure      401     {object}  map[string]interface{}  "User not authenticated"
 // @Failure      403     {object}  map[string]interface{}  "User is not the host"
-// @Failure      500     {object}  map[string]interface{}  "Failed to remove participant"
+// @Failure      500     {object}  map[string]interface{}  "Failed to kick participant"
 // @Router       /rooms/{id}/participants/{pid} [delete]
 func (h *Room) RemoveParticipant(c echo.Context) error {
 	roomID, err := uuid.Parse(c.Param("id"))

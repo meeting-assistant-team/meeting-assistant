@@ -88,7 +88,9 @@ type ParticipantListResponse struct {
 type ParticipantStatusResponse struct {
 	Status       string               `json:"status"`                  // "waiting", "joined", "denied", etc.
 	Message      string               `json:"message"`                 // User-friendly message
-	Room         *RoomResponse        `json:"room"`                    // Room information
+	RoomID       string               `json:"room_id"`                 // Room ID
+	RoomName     string               `json:"room_name"`               // Room name
+	RoomStatus   string               `json:"room_status"`             // Room status (active, ended, etc.)
 	Participant  *ParticipantResponse `json:"participant"`             // Current user's participant record
 	LivekitToken string               `json:"livekit_token,omitempty"` // Only when status is "joined"
 	LivekitURL   string               `json:"livekit_url,omitempty"`   // Only when status is "joined"

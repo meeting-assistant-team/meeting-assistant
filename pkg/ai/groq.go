@@ -142,6 +142,11 @@ func (g *GroqClient) GenerateStructuredAnalysis(ctx context.Context, transcript 
 		cleanedTranscript = cleanedTranscript[:24000] + "\n\n[... Transcript truncated due to length limit ...]"
 	}
 
+	// Truncate if too short (min ~500 characters limit)
+	if len(cleanedTranscript) < 500 {
+		cleanedTranscript = cleanedTranscript[:500] + "\n\n[... Transcript shortened due to length limit ...]"
+	}
+
 	// Build language-appropriate prompt
 	var systemPrompt, userPrompt string
 
@@ -155,14 +160,12 @@ Yêu cầu output JSON schema:
     {
       "text": "Nội dung key point",
       "timestamp_seconds": 120,
-      "mentioned_by_speaker": "Speaker A",
       "importance": "high"
     }
   ],
   "decisions": [
     {
       "decision_text": "Quyết định được đưa ra",
-      "owner": "Speaker B",
       "timestamp_seconds": 300,
       "impact": "high"
     }
@@ -172,7 +175,6 @@ Yêu cầu output JSON schema:
   "next_steps": [
     {
       "description": "Mô tả next step",
-      "owner": "Speaker A",
       "due_date_mentioned": "tuần sau",
       "priority": "high"
     }
@@ -181,7 +183,6 @@ Yêu cầu output JSON schema:
     {
       "title": "Tiêu đề task",
       "description": "Chi tiết task",
-      "assigned_to": "Speaker C",
       "type": "action",
       "priority": "medium",
       "transcript_reference": "Quote từ transcript",
@@ -190,8 +191,6 @@ Yêu cầu output JSON schema:
   ],
   "overall_sentiment": 0.7,
   "speaker_sentiment": {
-    "Speaker A": 0.8,
-    "Speaker B": 0.6
   },
   "engagement_score": 0.75,
   "participant_balance": {
@@ -225,14 +224,12 @@ Required JSON schema:
     {
       "text": "Key point content",
       "timestamp_seconds": 120,
-      "mentioned_by_speaker": "Speaker A",
       "importance": "high"
     }
   ],
   "decisions": [
     {
       "decision_text": "Decision made",
-      "owner": "Speaker B",
       "timestamp_seconds": 300,
       "impact": "high"
     }
@@ -242,7 +239,6 @@ Required JSON schema:
   "next_steps": [
     {
       "description": "Next step description",
-      "owner": "Speaker A",
       "due_date_mentioned": "next week",
       "priority": "high"
     }
@@ -251,7 +247,6 @@ Required JSON schema:
     {
       "title": "Task title",
       "description": "Task details",
-      "assigned_to": "Speaker C",
       "type": "action",
       "priority": "medium",
       "transcript_reference": "Quote from transcript",
@@ -260,8 +255,6 @@ Required JSON schema:
   ],
   "overall_sentiment": 0.7,
   "speaker_sentiment": {
-    "Speaker A": 0.8,
-    "Speaker B": 0.6
   },
   "engagement_score": 0.75,
   "participant_balance": {

@@ -29,6 +29,7 @@ type Service interface {
 	SubmitToAssemblyAI(ctx context.Context, jobID uuid.UUID, recordingURL string) error
 	StartWorkerPool(ctx context.Context, workerCount int) error
 	StopWorkerPool() error
+	GetWorkerStatus() map[string]interface{}
 }
 
 type aiService struct {
@@ -48,6 +49,8 @@ type aiService struct {
 	workerWg            sync.WaitGroup
 	isWorkerPoolRunning bool
 	workerMutex         sync.Mutex
+	workerStartTime     time.Time // Track when workers started
+	workerCount         int       // Number of summarization workers
 }
 
 // NewAIService constructs a new AI service
@@ -617,10 +620,13 @@ func (s *aiService) StartWorkerPool(ctx context.Context, workerCount int) error 
 
 	s.isWorkerPoolRunning = true
 	s.workerStopChan = make(chan struct{})
+	s.workerStartTime = time.Now()
+	s.workerCount = workerCount
 
 	if s.logger != nil {
 		s.logger.Info("🚀 Starting AI worker pool",
 			zap.Int("worker_count", workerCount),
+			zap.Time("start_time", s.workerStartTime),
 		)
 	}
 
@@ -673,6 +679,65 @@ func (s *aiService) StopWorkerPool() error {
 	return nil
 }
 
+// GetWorkerStatus returns current worker pool status
+func (s *aiService) GetWorkerStatus() map[string]interface{} {
+	s.workerMutex.Lock()
+	defer s.workerMutex.Unlock()
+
+	status := map[string]interface{}{
+		"running":               s.isWorkerPoolRunning,
+		"summarization_workers": s.workerCount,
+	}
+
+	if s.isWorkerPoolRunning {
+		uptime := time.Since(s.workerStartTime)
+		status["uptime_seconds"] = int(uptime.Seconds())
+		status["uptime_human"] = uptime.String()
+		status["start_time"] = s.workerStartTime.Format(time.RFC3339)
+		status["workers"] = []map[string]string{
+			{
+				"name":     "Summarization Workers",
+				"count":    fmt.Sprintf("%d", s.workerCount),
+				"task":     "Process transcript_ready jobs → Generate AI summary",
+				"interval": "30 seconds",
+				"status":   "running",
+			},
+			{
+				"name":     "Pending Job Worker",
+				"count":    "1",
+				"task":     "Submit pending jobs → AssemblyAI transcription",
+				"interval": "30 seconds",
+				"status":   "running",
+			},
+			{
+				"name":     "Zombie Cleanup Worker",
+				"count":    "1",
+				"task":     "Clean up stuck/zombie jobs in processing state",
+				"interval": "5 minutes",
+				"status":   "running",
+			},
+			{
+				"name":     "Failed Job Monitor",
+				"count":    "1",
+				"task":     "Monitor permanently failed jobs (max retries exceeded)",
+				"interval": "10 minutes",
+				"status":   "running",
+			},
+			{
+				"name":     "Webhook Timeout Worker",
+				"count":    "1",
+				"task":     "Poll AssemblyAI for jobs stuck (webhook timeout)",
+				"interval": "2 minutes",
+				"status":   "running",
+			},
+		}
+	} else {
+		status["message"] = "Worker pool is not running"
+	}
+
+	return status
+}
+
 // summaryWorker polls for jobs with transcript_ready status and generates summaries
 func (s *aiService) summaryWorker(parentCtx context.Context, workerID int) {
 	defer s.workerWg.Done()
@@ -680,11 +745,18 @@ func (s *aiService) summaryWorker(parentCtx context.Context, workerID int) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
+	// Heartbeat ticker - log every 5 minutes to show worker is alive
+	heartbeatTicker := time.NewTicker(5 * time.Minute)
+	defer heartbeatTicker.Stop()
+
 	if s.logger != nil {
 		s.logger.Info("👷 Worker started",
 			zap.Int("worker_id", workerID),
+			zap.String("task", "Process transcript_ready jobs for AI summarization"),
 		)
 	}
+
+	idleCount := 0
 
 	for {
 		select {
@@ -695,6 +767,16 @@ func (s *aiService) summaryWorker(parentCtx context.Context, workerID int) {
 				)
 			}
 			return
+
+		case <-heartbeatTicker.C:
+			// Heartbeat log
+			if s.logger != nil {
+				s.logger.Info("💓 Worker heartbeat",
+					zap.Int("worker_id", workerID),
+					zap.String("status", "alive"),
+					zap.String("task", "summarization"),
+				)
+			}
 
 		case <-ticker.C:
 			// Poll for jobs
@@ -710,7 +792,24 @@ func (s *aiService) summaryWorker(parentCtx context.Context, workerID int) {
 			}
 
 			if len(jobs) == 0 {
+				idleCount++
+				// Log idle state every 10 cycles (5 minutes)
+				if idleCount%10 == 1 && s.logger != nil {
+					s.logger.Debug("😴 Worker idle",
+						zap.Int("worker_id", workerID),
+						zap.String("status", "no transcript_ready jobs"),
+					)
+				}
 				continue
+			}
+
+			// Reset idle count when jobs found
+			idleCount = 0
+			if s.logger != nil {
+				s.logger.Info("📋 Worker found jobs",
+					zap.Int("worker_id", workerID),
+					zap.Int("job_count", len(jobs)),
+				)
 			}
 
 			// Process first available job
@@ -1029,9 +1128,17 @@ func (s *aiService) pendingJobWorker(parentCtx context.Context) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
+	// Heartbeat ticker
+	heartbeatTicker := time.NewTicker(5 * time.Minute)
+	defer heartbeatTicker.Stop()
+
 	if s.logger != nil {
-		s.logger.Info("👷 Pending job worker started")
+		s.logger.Info("👷 Pending job worker started",
+			zap.String("task", "Submit pending/retrying jobs to AssemblyAI"),
+		)
 	}
+
+	idleCount := 0
 
 	for {
 		select {
@@ -1040,6 +1147,14 @@ func (s *aiService) pendingJobWorker(parentCtx context.Context) {
 				s.logger.Info("👷 Pending job worker stopping")
 			}
 			return
+
+		case <-heartbeatTicker.C:
+			if s.logger != nil {
+				s.logger.Info("💓 Pending job worker heartbeat",
+					zap.String("status", "alive"),
+					zap.String("task", "pending job submission"),
+				)
+			}
 
 		case <-ticker.C:
 			// Poll for pending/retrying jobs
@@ -1052,8 +1167,17 @@ func (s *aiService) pendingJobWorker(parentCtx context.Context) {
 			}
 
 			if len(jobs) == 0 {
+				idleCount++
+				// Log idle state every 10 cycles (5 minutes)
+				if idleCount%10 == 1 && s.logger != nil {
+					s.logger.Debug("😴 Pending job worker idle",
+						zap.String("status", "no pending jobs to process"),
+					)
+				}
 				continue
 			}
+
+			idleCount = 0
 
 			if s.logger != nil {
 				s.logger.Info("📋 Found pending/retrying jobs",
@@ -1126,7 +1250,10 @@ func (s *aiService) failedJobRetryWorker(parentCtx context.Context) {
 	defer ticker.Stop()
 
 	if s.logger != nil {
-		s.logger.Info("👷 Failed job retry worker started")
+		s.logger.Info("👷 Failed job retry worker started",
+			zap.String("task", "Monitor permanently failed jobs (exceeded max retries)"),
+			zap.String("interval", "10 minutes"),
+		)
 	}
 
 	for {
@@ -1138,6 +1265,9 @@ func (s *aiService) failedJobRetryWorker(parentCtx context.Context) {
 			return
 
 		case <-ticker.C:
+			if s.logger != nil {
+				s.logger.Debug("🔍 Failed job worker checking for dead jobs")
+			}
 			// Get permanently failed jobs (retry_count >= max_retries)
 			var failedJobs []entities.AIJob
 			if err := s.aiJobRepo.GetDB().WithContext(parentCtx).
@@ -1177,7 +1307,10 @@ func (s *aiService) webhookTimeoutWorker(parentCtx context.Context) {
 	defer ticker.Stop()
 
 	if s.logger != nil {
-		s.logger.Info("👷 Webhook timeout worker started")
+		s.logger.Info("👷 Webhook timeout worker started",
+			zap.String("task", "Poll AssemblyAI for stuck jobs (webhook timeout)"),
+			zap.String("interval", "2 minutes"),
+		)
 	}
 
 	for {

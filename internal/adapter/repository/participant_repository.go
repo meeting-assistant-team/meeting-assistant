@@ -70,7 +70,11 @@ func (r *participantRepository) FindByRoomID(ctx context.Context, roomID uuid.UU
 	var participants []*entities.Participant
 	err := r.db.WithContext(ctx).
 		Preload("User").
-		Where("room_id = ?", roomID).
+		Where("room_id = ? AND status IN ?", roomID, []entities.ParticipantStatus{
+			entities.ParticipantStatusInvited,
+			entities.ParticipantStatusWaiting,
+			entities.ParticipantStatusJoined,
+		}).
 		Order("joined_at ASC").
 		Find(&participants).Error
 	return participants, err
